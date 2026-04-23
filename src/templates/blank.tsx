@@ -15,11 +15,12 @@ import {
   Copyright,
 } from '@/blocks';
 import type { Site, PageKey } from '@/lib/siteStore';
-import type { TemplateDef } from '@/lib/templates';
-import heroMountains from '@/assets/hero-mountains.jpg';
+import type { SiteImage } from '@/lib/imageStore';
+import type { TemplateDef, ImageSlotDef } from '@/lib/templates';
 
 const SANS = `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
 const DISPLAY = `'Fraunces', Georgia, 'Times New Roman', serif`;
+const HERO_MOUNTAIN_URL = 'https://iqxcgazfrydubrvxmnlv.supabase.co/storage/v1/object/public/site-images/thin-clients/f79627a8-3fb0-44f2-84dc-49ffcc20d84e/44484f50-c5dc-4420-abea-c584485adc25.png';
 
 const NAV_ITEMS = [
   { label: 'Home', url: '/' },
@@ -31,6 +32,40 @@ const NAV_ITEMS = [
   { label: 'Thank You', url: '/thank-you' },
   { label: '404', url: '/404' },
 ];
+
+const IMAGE_SLOTS: ImageSlotDef[] = [
+  {
+    key: 'homeHero',
+    label: 'Home hero',
+    description: 'Mountain scene used as the homepage hero background.',
+    defaultPrompt: 'Cinematic mountain range at golden hour, snow-capped peaks, layered fog in the valley, warm editorial outdoor aesthetic, wide hero background, no people, no buildings',
+    aspect: '16:9',
+  },
+];
+
+function defaultImage(slot: string, url: string, alt: string): SiteImage {
+  return {
+    id: `default-${slot}`,
+    siteId: '',
+    source: 'ai',
+    url,
+    alt,
+    prompt: null,
+    slot,
+    width: null,
+    height: null,
+    storagePath: null,
+    createdAt: new Date(0).toISOString(),
+  };
+}
+
+const DEFAULT_IMAGES: Record<string, SiteImage> = {
+  homeHero: defaultImage('homeHero', HERO_MOUNTAIN_URL, 'Majestic mountain range at sunrise'),
+};
+
+function withDefaults(images?: Record<string, SiteImage>): Record<string, SiteImage> {
+  return { ...DEFAULT_IMAGES, ...(images ?? {}) };
+}
 
 function Header({ brand, dark = false }: { brand: string; dark?: boolean }) {
   const ink = dark ? '#FFFFFF' : '#111111';
@@ -61,12 +96,12 @@ function Footer({ brand }: { brand: string }) {
   );
 }
 
-/** Index hero — full-bleed mountain scene with overlay copy. */
-function IndexHero({ brand }: { brand: string }) {
+function IndexHero({ brand, images = {} }: { brand: string; images?: Record<string, SiteImage> }) {
+  const hero = withDefaults(images).homeHero;
   return (
     <ContentSection
       name="Hero"
-      backgroundImage={heroMountains}
+      backgroundImage={hero.url}
       bgPosition="center"
       paddingDesktop={{ top: '180', bottom: '200' }}
       paddingMobile={{ top: '120', bottom: '140' }}
@@ -139,11 +174,11 @@ function Stub({
   );
 }
 
-const PAGE_BUILDERS: Record<PageKey, (brand: string) => ReactNode> = {
-  index: (brand) => (
+const PAGE_BUILDERS: Record<PageKey, (brand: string, images?: Record<string, SiteImage>) => ReactNode> = {
+  index: (brand, images) => (
     <>
       <Header brand={brand} dark />
-      <IndexHero brand={brand} />
+      <IndexHero brand={brand} images={images} />
       <ContentSection background="#FAFAFA" paddingDesktop={{ top: '100', bottom: '120' }}>
         <Text
           align="center"
@@ -197,14 +232,14 @@ export const blankTemplate: TemplateDef = {
   description: 'Minimal starter — all 8 pages, ready to customize.',
   pageKeys: ALL_PAGES,
   fonts: { heading: 'Fraunces', body: 'Inter' },
-  buildPages: (site: Site) => {
+  buildPages: (site: Site, images?: Record<string, SiteImage>) => {
     const out: Record<string, ReactNode> = {};
     for (const key of ALL_PAGES) {
       if (site.pages[key]?.enabled === false) continue;
-      out[key] = PAGE_BUILDERS[key](site.brandName);
+      out[key] = PAGE_BUILDERS[key](site.brandName, images);
     }
     return out;
   },
-  renderPage: (site: Site, page: PageKey) => PAGE_BUILDERS[page](site.brandName),
-  imageSlots: [],
+  renderPage: (site: Site, page: PageKey, images?: Record<string, SiteImage>) => PAGE_BUILDERS[page](site.brandName, images),
+  imageSlots: IMAGE_SLOTS,
 };
