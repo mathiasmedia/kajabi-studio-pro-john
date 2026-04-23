@@ -32,11 +32,11 @@ const NAV_ITEMS = [
   { label: '404', url: '/404' },
 ];
 
-function Header({ brand, transparent = false }: { brand: string; transparent?: boolean }) {
-  const ink = transparent ? '#FFFFFF' : '#111111';
+function Header({ brand, dark = false }: { brand: string; dark?: boolean }) {
+  const ink = dark ? '#FFFFFF' : '#111111';
   return (
     <HeaderSection
-      background={transparent ? 'transparent' : '#FFFFFF'}
+      background={dark ? '#0E1524' : '#FFFFFF'}
       textColor={ink}
       paddingDesktop={{ top: '24', bottom: '24' }}
       horizontalAlignment="between"
