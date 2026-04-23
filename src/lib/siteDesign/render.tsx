@@ -72,21 +72,59 @@ const BLOCK_COMPONENTS: Record<string, React.ComponentType<Record<string, unknow
  * Recursively replace `{ slot: 'key' }` refs in props with the resolved
  * image URL. Walks objects + arrays so nested fields (e.g. card.imageRef)
  * are resolved too.
+ *
+ * If a slot has no matching image, returns `undefined` (NOT empty string)
+ * so downstream cleanup (see `sanitizeSectionBackground`) can detect the
+ * miss and strip any dangling `bgType: 'image'` that would otherwise
+ * render a black section with no image.
  */
 function resolveSlots(value: unknown, images: Record<string, SiteImage>): unknown {
   if (value == null) return value;
   if (typeof value !== 'object') return value;
   if (isSlotRef(value)) {
     const img = images[value.slot];
-    return img ? img.url : '';
+    if (!img) {
+      console.warn(
+        `[siteDesign] slot "${value.slot}" has no matching site_images row — field will be dropped. ` +
+          `Fix: either generate+assign an image to this slot, or replace the { slot } ref with a direct https URL.`,
+      );
+      return undefined;
+    }
+    return img.url;
   }
   if (Array.isArray(value)) {
     return value.map((v) => resolveSlots(v, images));
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = resolveSlots(v, images);
+    const resolved = resolveSlots(v, images);
+    if (resolved !== undefined) out[k] = resolved;
   }
+  return out;
+}
+
+/**
+ * Post-resolution safety net for section props. If a section declared
+ * `bgType: 'image'` (or `'video'`) but its `backgroundImage` / `backgroundVideo`
+ * failed to resolve (unknown slot, empty string, etc.), demote `bgType` so
+ * the section falls back to its solid `background` color instead of
+ * rendering as a black void. Same fix is applied for exports via serialize.ts.
+ */
+function sanitizeSectionBackground(props: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...props };
+  const hasImage = typeof out.backgroundImage === 'string' && out.backgroundImage.length > 0;
+  const hasVideo = typeof out.backgroundVideo === 'string' && out.backgroundVideo.length > 0;
+  if (out.bgType === 'image' && !hasImage) {
+    console.warn('[siteDesign] section had bgType:"image" but no resolvable backgroundImage — falling back to color');
+    delete out.bgType;
+  }
+  if (out.bgType === 'video' && !hasVideo) {
+    console.warn('[siteDesign] section had bgType:"video" but no resolvable backgroundVideo — falling back to color');
+    delete out.bgType;
+  }
+  // Also strip empty strings so serialize's truthy checks behave.
+  if (out.backgroundImage === '') delete out.backgroundImage;
+  if (out.backgroundVideo === '') delete out.backgroundVideo;
   return out;
 }
 
@@ -128,7 +166,9 @@ function renderSection(
         ? FooterSection
         : ContentSection;
 
-  const resolvedProps = resolveSlots(section.props, images) as Record<string, unknown>;
+  const resolvedProps = sanitizeSectionBackground(
+    resolveSlots(section.props, images) as Record<string, unknown>,
+  );
   const children = section.blocks
     .map((b, i) => renderBlock(b, images, i))
     .filter((c): c is ReactElement => c !== null);

@@ -154,7 +154,55 @@ Default headers are **static** — they scroll off the page with the rest of the
 
 Footer link lists (e.g. "Explore", "Programs", "Resources", "Legal") should render as **untitled column groups** by default. Do NOT set `title` (and leave `show_title: false` / omit the title prop) on `link_list` blocks placed in the footer unless the expert **explicitly** asks for column headings like "Add a 'Resources' header above this list". Most modern footers look cleaner without column titles — the link labels themselves are enough. This applies to new sites, redesigns, and any footer pass.
 
-### 4.6 Image references must be public URLs
+### 4.6 NEVER overlay an opaque color on a section with a background image
+
+When a section has `bgType: 'image'` (or any `backgroundImage` set), its `background` color prop MUST be either **empty** (`""`) or a **semi-transparent** `rgba(...)` value with alpha `< 1`. An opaque hex like `#FBF8F2` or `#000000` completely covers the image — Kajabi renders the color on top, the image is technically loaded but invisible, and the expert reports "my hero image isn't showing."
+
+Defaults for image sections:
+- **Want the raw image to show:** `background: ""` (empty string).
+- **Want a tint/darken/lighten over the image:** `background: "rgba(0,0,0,0.45)"` (or any alpha `< 1`).
+- **Never:** opaque hex (`#xxxxxx`), `rgb(...)`, or `rgba(...)` with alpha `1`.
+
+This applies to every section type, including hero, CTA, and full-bleed image bands. When generating a hero image and wiring it onto a section, default to `background: ""` unless the expert explicitly asks for a tint.
+
+
+
+### 4.7 CTA buttons across a site MUST look consistent and on-brand
+
+Every CTA block on a single site should feel like it came from the same brand system. The bug to avoid is **two CTAs on the same site looking like they belong to different brands** — e.g. one navy pill outline, one cream square solid, picked at random by the AI.
+
+**The rule is consistency, not abstinence.** You SHOULD set per-block button styling — `buttonBackgroundColor`, `buttonTextColor`, `buttonStyle`, `buttonBorderRadius`, `buttonSize` — but you must:
+
+1. **Decide the brand button look ONCE per site**, then apply it identically to every primary CTA. Pull the colors from the site's palette (often visible in `design.themeSettings`: `color_button`, `color_button_text`, `color_primary`, `color_accent`). If the site has no `themeSettings`, infer from the section/page palette or ask the expert to pick.
+2. **When editing a single CTA, audit every other CTA on the site first** (`get-site-design` → walk all pages → list every `cta` block's button props) and match them. If you change one, change them all to match.
+3. **Reserve secondary/ghost variants** (outline, transparent bg) only for genuine secondary actions next to a primary CTA in the same section — never as a "let's mix it up" choice across pages.
+
+Good defaults to copy when creating a new CTA on a branded site:
+```ts
+{
+  type: "cta",
+  props: {
+    width: "12",
+    align: "center",
+    buttonText: "Get Started",
+    buttonUrl: "#",
+    buttonStyle: "solid",
+    buttonBackgroundColor: "#1F2A44",   // brand primary, same on every CTA
+    buttonTextColor: "#FBF8F2",          // brand on-primary, same on every CTA
+    buttonBorderRadius: "999",           // same radius on every CTA (or "8" for soft, "0" for sharp)
+  }
+}
+```
+
+If you generated this CTA and the site already has 3 other CTAs with different colors/radii, **fix the inconsistency** — either update this one to match the existing style, or update all of them to a unified style. Don't ship a site with mismatched buttons.
+
+### 4.8 Section + block background images go directly into the JSON
+
+When you put an image URL on a section (`backgroundImage`) or block (`src`), the export pipeline writes it **straight into `bg_image` / `image`** in `settings_data.json` — Kajabi's `image_picker_url` Liquid filter passes external `https://` URLs through unchanged. There is **no longer** any CSS-injection workaround that pins backgrounds onto sections by id; if you see code or comments referencing `__externalBg`, `assets/inject.css`, or `buildExternalBgCssBlock` in a thin client, it's stale and a `sync from master` is overdue.
+
+Symptom that you have a stale engine: hero/section background images appear in the **rendered preview** but Kajabi shows the section as a black box, or the exported zip's `settings_data.json` has empty `bg_image` fields with the image URL only present in injected CSS. Fix: ask the operator to run `sync from master`.
+
+### 4.9 Image references must be public URLs
 
 Any image URL embedded in `design` JSON must be one of:
 - a `https://...supabase.co/storage/v1/object/public/site-images/...` URL from the project's bucket
@@ -170,6 +218,121 @@ Never use bundler paths (`/src/...`, `/assets/...`, `blob:`, `data:`). Kajabi ca
 3. **Never invent a slot name** and hope it resolves. If you're not sure the slot exists, use the direct URL.
 
 To add a new image: call the `generate-site-image` edge function (it writes to `site_images` and returns `{ url, imageId }`), then reference that `url` directly in `design`. The render pipeline + exporter both have a safety net that demotes broken `bgType: 'image'` to the fallback color, but they also emit a console warning — if you see `[siteDesign] slot "..." has no matching site_images row`, you shipped a broken reference and must fix it.
+
+### 4.10 NEVER hardcode dynamic Kajabi content (blog, blog post, library/products)
+
+🚨 **This is the #1 cause of "the live site doesn't match the preview".** Some Kajabi pages render content from the expert's Kajabi data (their real blog posts, their real products) at runtime. If you hardcode mock posts/products into `design`, the export ships those mocks to Kajabi and the expert's real content is hidden.
+
+**The pages that are dynamic — NEVER fill them with hardcoded content blocks:**
+
+| Page key | What Kajabi renders dynamically | What you MUST use |
+|---|---|---|
+| `blog` | The expert's real blog post list | `{ kind: "raw", type: "blog_listings" }` |
+| `blog_post` | The body of whichever post the visitor clicked | `{ kind: "raw", type: "blog_post_body" }` |
+| `library` | The expert's real products / member library | `{ kind: "raw", type: "products" }` |
+
+**Forbidden on these pages:** hardcoded `card` blocks for posts/products, hardcoded post bodies, hardcoded lesson content, hardcoded product grids, hardcoded "course progress" or "continue learning" lists, hardcoded "related posts" cards. None of it. The Kajabi raw section renders all of that from the expert's real data.
+
+**Allowed on these pages:** header (shared), an optional branded intro `content` section above the raw section (eyebrow + headline + subhead — copy only, no fake post/product cards), an optional branded outro `content` section below it (e.g. CTA), and footer (shared). That's it.
+
+**Correct shape — `blog`:**
+```jsonc
+{
+  "sections": [
+    { "kind": "header", ... },
+    { "kind": "content", "name": "Journal hero", "blocks": [/* eyebrow + h1 + lede only */] },
+    {
+      "kind": "raw",
+      "type": "blog_listings",
+      "name": "Blog posts (dynamic)",
+      "settings": {
+        "background_color": "#FBF8F2",
+        "text_color": "#1F2A44",
+        "btn_background_color": "#1F2A44",   // brand
+        "btn_text_color": "#FBF8F2",          // brand
+        "btn_border_radius": "999",
+        "btn_style": "solid"
+      }
+    },
+    { "kind": "footer", ... }
+  ]
+}
+```
+
+**Correct shape — `blog_post`:**
+```jsonc
+{
+  "sections": [
+    { "kind": "header", ... },
+    { "kind": "raw", "type": "blog_post_body", "name": "Blog post body (dynamic)", "settings": { ...brand colors... } },
+    { "kind": "footer", ... }
+  ]
+}
+```
+
+**Correct shape — `library`:**
+```jsonc
+{
+  "sections": [
+    { "kind": "header", ... },
+    { "kind": "content", "name": "Library hero", "blocks": [/* "Welcome back" header copy only */] },
+    {
+      "kind": "raw",
+      "type": "products",
+      "name": "Products (dynamic)",
+      "settings": { "layout": "12", ...brand colors... }
+    },
+    { "kind": "footer", ... }
+  ]
+}
+```
+
+**Always pass branded `settings` on the raw section** so Kajabi's dynamic content matches the rest of the site — at minimum `background_color`, `text_color`, `btn_background_color`, `btn_text_color`, `btn_border_radius`, `btn_style`. Pull the values from the site's existing palette (audit other CTA blocks to match — see §4.7).
+
+**Other Kajabi-dynamic pages — same rule, header/footer only (NO content sections at all):** `login`, `forgot_password`, `reset_password`, `register`, `thank_you`, `404`, `newsletter*`, `member_directory`, `announcements`, `blog_search`. Don't hardcode "recent posts", fake login screens, fake signup forms, "forgot password" forms, fake product grids, or any branded intro on these pages — Kajabi renders the form/content itself.
+
+**🛑 AUTH PAGES — `login`, `register`, `forgot_password`, `reset_password` — ARE OFF-LIMITS.** These four pages are **non-composable** in Kajabi:
+- `login.liquid` uses a built-in `{% section "login" %}` Kajabi section that's not editable through `settings_data.json`.
+- `forgot_password.liquid` and `forgot_password_edit.liquid` (the "reset password" page) hardcode `{% include "block_password_reset" %}` / `{% include "block_password_edit" %}` — Kajabi renders the form itself.
+- `register` doesn't exist as a template in the base theme at all — Kajabi handles signup on its own URL.
+
+If you compose ANYTHING into `design.pages.login` / `register` / `forgot_password` / `reset_password` beyond header + footer, one of two things happens: (a) Kajabi ignores it and the expert sees the same default form, OR (b) your fake form/headline renders on top of Kajabi's real form, breaking the page. Either way the expert reports "the auth pages look broken."
+
+**Correct shape — every auth page (`login`, `register`, `forgot_password`, `reset_password`):**
+```jsonc
+{
+  "sections": [
+    { "kind": "header", ... },
+    { "kind": "footer", ... }
+  ]
+}
+```
+
+No "Welcome back" headline. No fake email input. No "Create your account" intro. No CTAs. Header + footer only. Brand the form indirectly via `themeSettings` (button colors, fonts) — that's how the form picks up the site's brand without you touching the page.
+
+**Pre-flight check before saving any page named `blog`, `blog_post`, or `library`:** scan the page's `sections` array for any `card` block, any `feature` block carrying mock post/product data, or any `text` block whose HTML contains hardcoded post/lesson/product titles. If you find any, replace them with the correct `{ kind: "raw", type: "..." }` section before calling `update-site-design`. Never ship a site where the expert has to discover this themselves.
+
+**Pre-flight check before saving any page named `login`, `register`, `forgot_password`, or `reset_password`:** the `sections` array MUST have length 2 (header + footer). If anything else is there, strip it before calling `update-site-design`.
+
+### 4.11 NEVER put content on the `page` template — leave it empty (header + footer only)
+
+The `page` template in Kajabi is a **per-product wrapper** — it's reused for every individual course/sales/landing page the expert publishes from inside Kajabi. Anything you compose into `design.pages.page` (a hero, a curriculum block, a testimonials section) gets injected into **every one of those product pages**, on top of whatever Kajabi is rendering for that specific product. The expert sees: "my course page has a different course's content showing above the real content."
+
+**The rule:** `design.pages.page` MUST contain header + footer only. No content sections. No hero. No curriculum, testimonials, or CTAs. Kajabi handles the body of each product page entirely on its own.
+
+**Correct shape — `page`:**
+```jsonc
+{
+  "sections": [
+    { "kind": "header", ... },
+    { "kind": "footer", ... }
+  ]
+}
+```
+
+If the expert says "design the course page" or "build out the page template", they almost always mean a **specific page** (homepage, about, programs, a custom landing page) — confirm which one and edit that page key instead. Never interpret it as "fill in `design.pages.page`".
+
+**Pre-flight check before saving:** if the page key being edited is `page`, the `sections` array must have length 2 (header + footer). If you've added anything else, remove it before calling `update-site-design`.
 
 ---
 
