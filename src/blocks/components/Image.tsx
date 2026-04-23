@@ -22,10 +22,18 @@ export interface ImageProps extends ChromeProps {
   alt?: string;
   /** Optional click-through URL → maps to img_action */
   href?: string;
-  /** Width in pixels */
+  /**
+   * Bootstrap column width 1–12 (block container width) — same meaning as
+   * every other block in the library. NOTE: historically this prop meant
+   * "image pixel width", which collided with the universal column-width
+   * convention. As of the fix, bare numeric strings "1".."12" are treated
+   * as column widths; use `imageWidth` for explicit pixel sizing.
+   */
   width?: string;
-  /** Bootstrap col 1-12 (block container width) */
+  /** Bootstrap col 1-12 (block container width) — explicit alias for `width`. */
   colWidth?: string;
+  /** CSS pixel width of the <img> element itself (Kajabi `image_width`). */
+  imageWidth?: string;
   /** Corner radius applied to the IMAGE itself (Kajabi `image_border_radius`). */
   imageBorderRadius?: string;
   caption?: string;
@@ -37,18 +45,46 @@ export interface ImageProps extends ChromeProps {
   newTab?: boolean;
 }
 
+const COL_WIDTH_RE = /^([1-9]|1[0-2])$/;
+const warnedColWidthCollision = new Set<string>();
+
+/**
+ * Resolve the pixel width for the <img> element.
+ * Precedence: imageWidth > width (only if it doesn't look like a Bootstrap col) > none.
+ * If `width` looks like "1".."12", it's treated as a column width (handled by the
+ * section wrapper) and IGNORED here — with a one-time console warning so callers
+ * can migrate to `imageWidth`.
+ */
+function resolveImagePixelWidth(props: ImageProps): string | undefined {
+  if (props.imageWidth) return props.imageWidth;
+  if (!props.width) return undefined;
+  if (COL_WIDTH_RE.test(props.width)) {
+    const key = props.src ?? '';
+    if (!warnedColWidthCollision.has(key)) {
+      warnedColWidthCollision.add(key);
+      console.warn(
+        `[Image] width="${props.width}" looks like a Bootstrap column (1–12) — ` +
+        `treating as column width, not pixel size. Use \`imageWidth\` for pixel sizing.`,
+      );
+    }
+    return undefined;
+  }
+  return props.width;
+}
+
 export const Image: BlockComponent<ImageProps> = (props) => {
   const align = props.align ?? 'center';
   const justifyContent =
     align === 'left' ? 'flex-start' :
     align === 'right' ? 'flex-end' : 'center';
   const chrome = getBlockChromeStyle(props);
+  const pixelWidth = resolveImagePixelWidth(props);
   const img = (
     <img
       src={props.src}
       alt={props.alt ?? ''}
       style={{
-        maxWidth: props.width ? `${props.width}px` : '100%',
+        maxWidth: pixelWidth ? `${pixelWidth}px` : '100%',
         borderRadius: props.imageBorderRadius ? `${props.imageBorderRadius}px` : undefined,
         display: 'block',
       }}
@@ -95,13 +131,18 @@ Image.serialize = (p) => {
   const flexAlign =
     p.align === 'left' ? 'flex-start' :
     p.align === 'right' ? 'flex-end' : 'center';
+  // Column width precedence: colWidth > width (only if it looks like a Bootstrap col) > '10'.
+  const colFromWidth = p.width && COL_WIDTH_RE.test(p.width) ? p.width : undefined;
+  const col = p.colWidth ?? colFromWidth ?? '10';
+  // Pixel width: imageWidth wins; otherwise width only if it does NOT look like a col.
+  const pixelWidth = p.imageWidth ?? (p.width && !COL_WIDTH_RE.test(p.width) ? p.width : '');
   const base = withBlockDefaults({
-    width: p.colWidth ?? '10',
+    width: col,
     text_align: p.align ?? 'center',
     ...serializeChromeProps(p),
     image: p.src ?? '',
     image_alt: p.alt ?? '',
-    image_width: p.width ?? '',
+    image_width: pixelWidth,
     image_border_radius: p.imageBorderRadius ?? '',
     image_align_desktop: flexAlign,
     image_align_mobile: flexAlign,
