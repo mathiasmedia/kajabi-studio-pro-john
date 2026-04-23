@@ -146,7 +146,15 @@ You can READ all of these to understand the system. You just can't MODIFY them.
 
 All site data, images, and slot assignments persist server-side in Supabase. If something isn't appearing, it is **never** because "we need to store it in localStorage."
 
-### 4.4 Image references must be public URLs
+### 4.4 NEVER use sticky / fixed / overlay headers unless explicitly asked
+
+Default headers are **static** — they scroll off the page with the rest of the content. Do NOT set `sticky: true` or `position: 'overlay'` on `HeaderSection` props unless the expert **explicitly** asks for "sticky header", "fixed header", "header that stays at the top", or "header overlaid on the hero". This applies to new sites, redesigns, and any "make it more premium" pass. Sticky headers are a deliberate choice the expert must opt into — never assume.
+
+### 4.5 NEVER add titles to footer `link_list` blocks unless explicitly asked
+
+Footer link lists (e.g. "Explore", "Programs", "Resources", "Legal") should render as **untitled column groups** by default. Do NOT set `title` (and leave `show_title: false` / omit the title prop) on `link_list` blocks placed in the footer unless the expert **explicitly** asks for column headings like "Add a 'Resources' header above this list". Most modern footers look cleaner without column titles — the link labels themselves are enough. This applies to new sites, redesigns, and any footer pass.
+
+### 4.6 Image references must be public URLs
 
 Any image URL embedded in `design` JSON must be one of:
 - a `https://...supabase.co/storage/v1/object/public/site-images/...` URL from the project's bucket
@@ -227,3 +235,68 @@ When in doubt, ask yourself:
 
 If it's site content → edit the JSON, save to DB, done.
 If it's shared platform → pause and tell the operator.
+
+---
+
+## 8. Syncing engine fixes from master (operator-triggered)
+
+Master (`@kajabi-studio-max`) ships ongoing fixes to the export pipeline, preview renderer, block components, and editor shell. Thin clients are **frozen at the version they were forked from** — they do NOT auto-update. When the operator pastes a message containing the literal phrase **"sync from master"** (or "pull from master", "update engine from master"), this is a deliberate operator override of §4.2's "do not modify shell code" rule, and you SHOULD perform the sync.
+
+### 8.1 What to sync
+
+Pull these files verbatim from `@kajabi-studio-max` into the thin client. They are the entire app shell + engine layer; site content lives in the database and is unaffected.
+
+**Engine + blocks (export pipeline):**
+- `src/blocks/index.ts`
+- `src/blocks/export.ts`
+- `src/blocks/serialize.ts`
+- `src/blocks/sections.tsx`
+- `src/blocks/RawSection.tsx`
+- `src/blocks/BlockWrapper.tsx`
+- `src/blocks/blockChrome.ts`
+- `src/blocks/blockDefaults.ts`
+- `src/blocks/types.ts`
+- `src/blocks/components/**` (every file)
+- `src/engines/**` (every file)
+
+**Site rendering:**
+- `src/lib/siteDesign/types.ts`
+- `src/lib/siteDesign/render.tsx`
+- `src/lib/siteDesign/blank.ts`
+- `src/lib/siteStore.ts`
+- `src/lib/imageStore.ts`
+
+**Editor shell + preview:**
+- `src/pages/SiteEditor.tsx`
+- `src/pages/SitesDashboard.tsx`
+- `src/components/SitePreview.tsx`
+
+**Type contracts (read-only at the type level but ship the file):**
+- `src/types/assets.ts`
+- `src/types/schemas.ts`
+
+### 8.2 What NOT to sync
+
+- `src/integrations/supabase/types.ts` — auto-generated per project, leave alone.
+- `src/integrations/supabase/client.ts` — auto-generated per project, leave alone.
+- `.env`, `supabase/config.toml`, `supabase/migrations/**` — managed by the platform.
+- `supabase/functions/**` — edge functions are deployed from master and shared; thin clients should never touch them.
+- `AGENTS.md` itself — re-sync this file separately and ONLY if the operator explicitly says "also sync AGENTS.md".
+- Anything outside the lists in §8.1.
+
+### 8.3 How to do it
+
+For each file in §8.1:
+1. `cross_project--read_project_file` from project `kajabi-studio-max` (project ID `4fd872bc-5636-4a8a-bde9-a334a0656f59`).
+2. Overwrite the local file with `code--write` (or skip if the file doesn't exist locally — that means master deleted it, delete it locally too with `code--delete`).
+3. Batch reads in parallel where possible.
+
+After syncing, run `tsc --noEmit` (or just rely on Vite's HMR) to catch any drift between the synced engine code and a thin-client-specific tweak that may have been made. If something doesn't compile, **stop and tell the operator** — do NOT silently patch master code to fit a local hack.
+
+### 8.4 Reporting back
+
+When done, tell the operator exactly which files changed and which were already up-to-date. Example: "Synced 14 files from master (8 in `src/blocks/`, 4 in `src/engines/`, 2 in `src/lib/siteDesign/`); 6 files were already current."
+
+### 8.5 What this fixes
+
+This sync is what propagates master-side fixes for: export pipeline bugs (e.g. external background-image URL mangling), preview rendering bugs (font loading, column gutters, heading-descendant fonts), block component bugs, and editor UI improvements. If the expert reports "this looked fine in the preview but broke after export" or "the preview doesn't match Kajabi", the first thing to try after reading the relevant code is asking the operator if a master sync is overdue.
