@@ -101,6 +101,28 @@ Do **not** add localStorage persistence for site data that already belongs in th
 If a user asks for a better hero, a new page, stronger branding, or improved copy,
 that is usually a **template/code task**, not a database or backend task.
 
+### 4.5 Template imagery MUST be a public URL
+
+All images used inside `src/templates/**` (hero backgrounds, portraits, logos,
+section imagery, etc.) MUST come from one of:
+
+- the `site-images` Supabase storage bucket (e.g. `https://<project>.supabase.co/storage/v1/object/public/site-images/...`), OR
+- a `SiteImage` passed in via the `images` prop / image slot system (which itself resolves to a public URL on that bucket), OR
+- another fully-qualified `https://` URL hosted on a public CDN.
+
+You MUST NOT:
+
+- `import foo from '@/assets/...'` inside any file under `src/templates/**`
+- use bundler-resolved paths (`/src/...`, `/assets/...`, `blob:`, `data:`) as `backgroundImage` / `src` values in templates
+- reference the Lovable preview host or `localhost` URLs in template code
+
+Why: Vite-bundled asset URLs only exist inside the preview. Kajabi cannot fetch
+them at import time, so the image silently disappears in the exported theme.
+
+If you need a new image, generate one through the existing
+`generate-site-image` edge function and wire it through an image slot — never
+through a static import. A repo-level test enforces this rule.
+
 ---
 
 ## 5. Architecture cheat sheet
