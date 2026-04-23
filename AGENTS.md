@@ -37,65 +37,71 @@ When the expert asks to redesign a page or section, **just do the work** and sho
 
 ## 3. How to actually edit a site (THE CORE WORKFLOW)
 
-Sites are stored as JSON in the `sites` table, in the `design` column. The shape is defined in `src/lib/siteDesign/types.ts`.
+Sites are stored as JSON in the `sites` table, in the `design` column. The shape is defined in `src/lib/siteDesign/types.ts`. **Thin clients do NOT have direct database write access** — they go through the master backend's `update-site-design` edge function.
 
-### 3.1 Default workflow: write directly to the database
+### 3.1 Default workflow: load → mutate → call `update-site-design`
 
-The fastest, cleanest way to change a single site is a one-shot Node script that:
-1. Loads the site row from Supabase
-2. Mutates the `design` JSON in memory
-3. Writes it back via `UPDATE sites SET design = ... WHERE id = ...`
+The thin client uses the existing thin-client app token (already wired in `src/lib/siteStore.ts` and `src/lib/imageStore.ts`) to call master's `update-site-design` edge function. You do NOT need a service role key — the edge function holds it server-side.
 
-**Pattern (write this file, run it once, then delete it):**
+**Pattern (do this in a one-shot script or directly via the supabase JS client in dev console):**
 
 ```ts
-// /tmp/update-site.ts
-import { createClient } from '@supabase/supabase-js';
+// /tmp/update-site.ts — run with: deno run -A /tmp/update-site.ts
+// (or use a Node script with the supabase-js client — both work)
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const SITE_ID = '<site-id-from-the-route-or-listSites>';
+const SUPABASE_URL = "<from .env: VITE_SUPABASE_URL>";
+const SUPABASE_ANON_KEY = "<from .env: VITE_SUPABASE_PUBLISHABLE_KEY>";
+const APP_TOKEN = "<thin client app token — same one used by generate-site-image>";
+const SITE_ID = "<site uuid from the editor route /sites/:siteId>";
 
-const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const { data: site, error } = await supabase
-  .from('sites')
-  .select('*')
-  .eq('id', SITE_ID)
+// 1. Load the current design.
+const { data: site, error } = await sb
+  .from("sites")
+  .select("design")
+  .eq("id", SITE_ID)
   .single();
 if (error) throw error;
 
 const design = site.design;
 
-// === MUTATE design HERE ===
-// e.g. replace the hero (section index 1 on the index page):
+// 2. Mutate it. Example: replace the hero section on the homepage.
 design.pages.index.sections[1] = {
-  kind: 'content',
-  name: 'Hero',
+  kind: "content",
+  name: "Hero",
   props: {
-    background: '#0B0B0F',
-    paddingDesktop: { top: '140', bottom: '140' },
+    background: "#0B0B0F",
+    paddingDesktop: { top: "140", bottom: "140" },
   },
   blocks: [
-    { type: 'text', props: { width: '12', align: 'center', text: '<h1>...</h1><p>...</p>' } },
-    { type: 'cta',  props: { width: '12', align: 'center', label: 'Get Started', url: '#' } },
+    { type: "text", props: { width: "12", align: "center", text: "<h1>...</h1><p>...</p>" } },
+    { type: "cta",  props: { width: "12", align: "center", label: "Get Started", url: "#" } },
   ],
 };
 
-const { error: upErr } = await supabase
-  .from('sites')
-  .update({ design })
-  .eq('id', SITE_ID);
-if (upErr) throw upErr;
-
-console.log('Updated.');
+// 3. Save via the edge function.
+const resp = await fetch(`${SUPABASE_URL}/functions/v1/update-site-design`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "X-App-Token": APP_TOKEN,
+  },
+  body: JSON.stringify({ siteId: SITE_ID, design }),
+});
+if (!resp.ok) throw new Error(`Save failed: ${resp.status} ${await resp.text()}`);
+console.log("Updated:", await resp.json());
 ```
 
-Run it with the available service-role key in the sandbox. The expert refreshes the editor and sees the change.
+**Where to find each value:**
+- `SUPABASE_URL` and `SUPABASE_ANON_KEY` → `.env` file in the thin client (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`)
+- `APP_TOKEN` → search the thin client codebase for `THIN_CLIENT_APP_TOKEN` or `x-app-token` — the helper that calls `generate-site-image` already uses it
+- `SITE_ID` → from the editor route `/sites/:siteId` the expert is currently on
 
-### 3.2 If a script isn't possible, use psql
+### 3.2 NEVER write raw SQL to update sites
 
-If `PG*` env vars are present (`test -n "$PGHOST"`), you can also do it as a single SQL update — but only for small surgical changes. JSON-as-SQL-string gets ugly fast. Prefer the script.
+Do NOT use `psql` or any direct DB connection. Thin clients don't have those credentials, and even if they did, bypassing the edge function skips the auth boundary. Always go through `update-site-design`.
 
 ### 3.3 NEVER just edit `src/lib/siteDesign/blank.ts` to fix one site
 
@@ -103,7 +109,7 @@ If `PG*` env vars are present (`test -n "$PGHOST"`), you can also do it as a sin
 
 ### 3.4 NEVER add "regenerate" buttons or new editor UI to do this work
 
-The expert is talking to you. You ARE the editor. Don't build UI to do what you can already do directly.
+The expert is talking to you. You ARE the editor. Don't build UI to do what you can already do directly through the edge function.
 
 ---
 
