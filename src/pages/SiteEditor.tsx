@@ -1,6 +1,9 @@
 /**
  * Site Editor — single-site preview + multi-page tab switcher + export.
- * Thin-client version: no auth.
+ *
+ * Reads the site by `:siteId` from the database, renders pages from
+ * `site.design` JSON via the SiteDesign renderer, and exports the whole
+ * multi-page tree as a Kajabi zip.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -11,8 +14,8 @@ import {
   type PageKey,
   type Site,
 } from '@/lib/siteStore';
-import { getTemplate } from '@/lib/templates';
 import { listSiteImages, imagesBySlot, type SiteImage } from '@/lib/imageStore';
+import { renderDesign, designToPageTrees } from '@/lib/siteDesign/render';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -35,10 +38,11 @@ const SYSTEM_PAGE_LABELS: Record<string, string> = {
   '404': '404',
 };
 
+/** Friendly tab label for any system or custom page key. */
 function pageLabel(key: PageKey): string {
   if (SYSTEM_PAGE_LABELS[key]) return SYSTEM_PAGE_LABELS[key];
   return key
-    .split('_')
+    .split(/[-_]/)
     .map((w) => (w.length === 0 ? '' : w[0].toUpperCase() + w.slice(1)))
     .join(' ');
 }
@@ -65,9 +69,9 @@ export default function SiteEditor() {
       }
       setSite(s);
       setNameDraft(s.name);
-      const tpl = getTemplate(s.templateId);
-      if (!tpl.pageKeys.includes('index') && tpl.pageKeys.length > 0) {
-        setActivePage(tpl.pageKeys[0]);
+      const keys = s.design?.pageKeys ?? [];
+      if (keys.length > 0 && !keys.includes('index')) {
+        setActivePage(keys[0]);
       }
       const imgs = await listSiteImages(siteId);
       if (cancelled) return;
@@ -78,11 +82,15 @@ export default function SiteEditor() {
     };
   }, [siteId, navigate]);
 
-  const tpl = useMemo(() => (site ? getTemplate(site.templateId) : null), [site]);
   const slotMap = useMemo(() => imagesBySlot(images), [images]);
+  const pageKeys = site?.design?.pageKeys ?? [];
 
+  // Preview-time font loading: inject a single Google Fonts <link> for the
+  // design's declared fonts so the in-app iframe renders the same families
+  // the export will. Cleaned up on design change/unmount.
   useEffect(() => {
-    if (!tpl?.fonts) return;
+    const fonts = site?.design?.fonts;
+    if (!fonts) return;
     const families: string[] = [];
     const seen = new Set<string>();
     const add = (name?: string) => {
@@ -92,20 +100,20 @@ export default function SiteEditor() {
       seen.add(key.toLowerCase());
       families.push(`${key.replace(/\s+/g, '+')}:wght@300;400;500;600;700;800`);
     };
-    add(tpl.fonts.heading);
-    add(tpl.fonts.body);
-    tpl.fonts.extras?.forEach(add);
+    add(fonts.heading);
+    add(fonts.body);
+    fonts.extras?.forEach(add);
     if (families.length === 0) return;
     const href = `https://fonts.googleapis.com/css2?${families.map(f => `family=${f}`).join('&')}&display=swap`;
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = href;
-    link.dataset.previewFonts = tpl.id;
+    if (site?.id) link.dataset.previewFonts = site.id;
     document.head.appendChild(link);
     return () => {
       link.remove();
     };
-  }, [tpl]);
+  }, [site?.design?.fonts, site?.id]);
 
   async function commitName() {
     if (!site) return;
@@ -121,11 +129,13 @@ export default function SiteEditor() {
   }
 
   async function handleExport() {
-    if (!site || !tpl) return;
+    if (!site || !site.design) return;
     setBusy(true);
     try {
-      const trees = tpl.buildPages(site, slotMap);
-      const fonts = tpl.fonts;
+      const trees = designToPageTrees(site.design, slotMap);
+      const fonts = site.design.fonts;
+      const themeSettings = site.design.themeSettings;
+      const customCss = site.design.customCss;
       const global = fonts
         ? {
             headingFont: fonts.heading,
@@ -138,8 +148,8 @@ export default function SiteEditor() {
         : undefined;
       const blob = await exportFromTree(trees, {
         global,
-        themeSettings: tpl.themeSettings,
-        customCss: tpl.customCss,
+        themeSettings,
+        customCss,
       });
       const safe = site.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site';
       triggerDownload(blob, `${safe}.zip`);
@@ -151,7 +161,7 @@ export default function SiteEditor() {
     }
   }
 
-  if (!site || !tpl) {
+  if (!site) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
         Loading site…
@@ -159,10 +169,13 @@ export default function SiteEditor() {
     );
   }
 
-  const PreviewPage = tpl.renderPage(site, activePage, slotMap);
+  const PreviewPage = site.design
+    ? renderDesign(site.design, activePage, slotMap)
+    : null;
 
   return (
     <div className="min-h-screen bg-muted/20">
+      {/* Sticky editor bar */}
       <div className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
@@ -194,16 +207,17 @@ export default function SiteEditor() {
             </button>
           )}
           <span className="hidden text-xs text-muted-foreground sm:inline">
-            · {tpl.label} · {tpl.pageKeys.length} {tpl.pageKeys.length === 1 ? 'page' : 'pages'}
+            · {pageKeys.length} {pageKeys.length === 1 ? 'page' : 'pages'}
           </span>
         </div>
 
+        {/* Page selector */}
         <Select value={activePage} onValueChange={(v) => setActivePage(v as PageKey)}>
           <SelectTrigger className="h-9 w-56">
             <SelectValue placeholder="Select page" />
           </SelectTrigger>
           <SelectContent>
-            {tpl.pageKeys.map((key) => (
+            {pageKeys.map((key) => (
               <SelectItem key={key} value={key}>
                 {pageLabel(key)}
               </SelectItem>
@@ -211,13 +225,20 @@ export default function SiteEditor() {
           </SelectContent>
         </Select>
 
-        <Button onClick={handleExport} disabled={busy} size="sm">
+        <Button onClick={handleExport} disabled={busy || !site.design} size="sm">
           <Download className="h-4 w-4" />
           {busy ? 'Building zip…' : 'Export theme'}
         </Button>
       </div>
 
-      <div>{PreviewPage}</div>
+      {/* Preview */}
+      <div>
+        {PreviewPage ?? (
+          <div className="flex min-h-[60vh] items-center justify-center text-muted-foreground">
+            This site has no design yet.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
