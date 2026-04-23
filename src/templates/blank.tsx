@@ -66,7 +66,6 @@ function IndexHero({ brand }: { brand: string }) {
   return (
     <ContentSection
       name="Hero"
-      background="#0E1524"
       backgroundImage={heroMountains}
       bgPosition="center"
       paddingDesktop={{ top: '180', bottom: '200' }}
