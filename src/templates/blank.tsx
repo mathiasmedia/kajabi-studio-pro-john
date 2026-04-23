@@ -16,8 +16,10 @@ import {
 } from '@/blocks';
 import type { Site, PageKey } from '@/lib/siteStore';
 import type { TemplateDef } from '@/lib/templates';
+import heroMountains from '@/assets/hero-mountains.jpg';
 
 const SANS = `'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+const DISPLAY = `'Fraunces', Georgia, 'Times New Roman', serif`;
 
 const NAV_ITEMS = [
   { label: 'Home', url: '/' },
