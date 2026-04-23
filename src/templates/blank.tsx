@@ -197,7 +197,7 @@ export const blankTemplate: TemplateDef = {
   label: 'Blank',
   description: 'Minimal starter — all 8 pages, ready to customize.',
   pageKeys: ALL_PAGES,
-  fonts: { body: 'Inter' },
+  fonts: { heading: 'Fraunces', body: 'Inter' },
   buildPages: (site: Site) => {
     const out: Record<string, ReactNode> = {};
     for (const key of ALL_PAGES) {
