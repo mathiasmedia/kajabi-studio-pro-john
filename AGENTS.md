@@ -150,12 +150,18 @@ All site data, images, and slot assignments persist server-side in Supabase. If 
 
 Any image URL embedded in `design` JSON must be one of:
 - a `https://...supabase.co/storage/v1/object/public/site-images/...` URL from the project's bucket
-- a slot reference `{ slot: 'hero' }` that resolves to a `site_images` row at render time
+- a slot reference `{ slot: 'hero' }` **— but ONLY if a `site_images` row with that exact slot exists for this site**
 - another fully-qualified `https://` URL on a public CDN
 
 Never use bundler paths (`/src/...`, `/assets/...`, `blob:`, `data:`). Kajabi can't fetch them.
 
-To add a new image: call the `generate-site-image` edge function (it writes to the `site_images` table and returns the URL), then either reference the URL directly in `design` or assign the row a `slot` and reference that slot in `design`.
+**CRITICAL — slot refs without an image = black section.** A `{ slot: 'x' }` ref that doesn't match a `site_images` row resolves to nothing, the section's `bgType: 'image'` is then demoted, and the section renders as its fallback color (usually black). Symptoms: "my hero is just a black box." To avoid this:
+
+1. **Default to direct URLs.** When you generate an image via `generate-site-image`, it returns `{ url, imageId }`. Put that `url` directly on the block/section prop (`backgroundImage: "https://..."`, `src: "https://..."`). Done — no slot bookkeeping needed.
+2. **Only use `{ slot }` refs** if the site already has a `site_images` row with that slot (check by reading the site first, or by asking `generate-site-image` with an explicit `slot` parameter that it writes to the row). If you set `{ slot: 'hero' }` in `design`, you MUST have also assigned a row to slot `'hero'` in the same change.
+3. **Never invent a slot name** and hope it resolves. If you're not sure the slot exists, use the direct URL.
+
+To add a new image: call the `generate-site-image` edge function (it writes to `site_images` and returns `{ url, imageId }`), then reference that `url` directly in `design`. The render pipeline + exporter both have a safety net that demotes broken `bgType: 'image'` to the fallback color, but they also emit a console warning — if you see `[siteDesign] slot "..." has no matching site_images row`, you shipped a broken reference and must fix it.
 
 ---
 
