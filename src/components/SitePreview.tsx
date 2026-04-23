@@ -1,17 +1,15 @@
 /**
- * SitePreview — renders the actual home page React tree from the site's
- * template, scaled down to fit a thumbnail. Live + accurate (uses the same
- * code path as the editor/export), no screenshots needed.
+ * SitePreview — renders the home page from a site's `design` JSON, scaled
+ * to a thumbnail. Sites without a design fall back to a friendly empty card.
  */
 import { useEffect, useRef, useState } from 'react';
-import { getTemplate } from '@/lib/templates';
 import type { Site } from '@/lib/siteStore';
+import { renderDesign } from '@/lib/siteDesign/render';
 
-const RENDER_WIDTH = 1280; // viewport width we render the page at
-const RENDER_HEIGHT = 800; // viewport height we capture for the thumbnail
+const RENDER_WIDTH = 1280;
+const RENDER_HEIGHT = 800;
 
 export function SitePreview({ site }: { site: Site }) {
-  const tpl = getTemplate(site.templateId);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0.25);
 
@@ -30,9 +28,12 @@ export function SitePreview({ site }: { site: Site }) {
 
   let content: React.ReactNode = null;
   try {
-    content = tpl.renderPage(site, 'index');
+    if (site.design) {
+      // Image slot resolution at thumbnail scale isn't worth a DB round-trip.
+      content = renderDesign(site.design, 'index', {});
+    }
   } catch (err) {
-    console.error('[SitePreview] renderPage failed:', err);
+    console.error('[SitePreview] render failed:', err);
   }
 
   return (
@@ -65,7 +66,7 @@ export function SitePreview({ site }: { site: Site }) {
               {site.brandName}
             </div>
             <div className="mt-1 text-xs uppercase tracking-wider text-muted-foreground">
-              {tpl.label}
+              No design yet
             </div>
           </div>
         </div>

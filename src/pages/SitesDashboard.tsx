@@ -1,6 +1,5 @@
 /**
  * Sites Dashboard — list, create, rename, duplicate, delete sites.
- * Thin-client version: no auth, sites stored in localStorage.
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -13,7 +12,7 @@ import {
   enabledPageCount,
   type Site,
 } from '@/lib/siteStore';
-import { getTemplate } from '@/lib/templates';
+import { SitePreview } from '@/components/SitePreview';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -46,7 +45,6 @@ import {
 import { MoreVertical, Plus, FileText, Layers, Copy, Check, LogOut } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
-import { SitePreview } from '@/components/SitePreview';
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -83,7 +81,7 @@ export default function SitesDashboard() {
   }, []);
 
   async function handleCreate(name: string) {
-    const site = await createSite({ name, templateId: 'blank', brandName: name });
+    const site = await createSite({ name, brandName: name });
     if (!site) return;
     await refresh();
     setCreateOpen(false);
@@ -195,7 +193,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <div>
         <h2 className="text-xl font-semibold">No sites yet</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Create your first site from a template to get started.
+          Create your first site to get started.
         </p>
       </div>
       <Button onClick={onCreate}>
@@ -218,7 +216,6 @@ function SiteCard({
   onDuplicate: () => void;
   onDelete: () => void;
 }) {
-  const tpl = getTemplate(site.templateId);
   const pageCount = enabledPageCount(site);
 
   return (
