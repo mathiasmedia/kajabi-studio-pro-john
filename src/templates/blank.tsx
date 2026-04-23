@@ -143,7 +143,7 @@ function Stub({
 const PAGE_BUILDERS: Record<PageKey, (brand: string) => ReactNode> = {
   index: (brand) => (
     <>
-      <Header brand={brand} transparent />
+      <Header brand={brand} dark />
       <IndexHero brand={brand} />
       <ContentSection background="#FAFAFA" paddingDesktop={{ top: '100', bottom: '120' }}>
         <Text
