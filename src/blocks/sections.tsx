@@ -12,9 +12,17 @@
  *            accordion, video_embed
  * - footer: copyright, logo, social_icons
  */
-import { Children, Fragment, cloneElement, isValidElement, type ReactElement, type ReactNode, type CSSProperties } from 'react';
-import type { BlockComponent, SectionLayoutProps } from './types';
-import type { SectionComponent } from './serialize';
+import {
+  Children,
+  Fragment,
+  cloneElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  type CSSProperties,
+} from "react";
+import type { BlockComponent, SectionLayoutProps } from "./types";
+import type { SectionComponent } from "./serialize";
 
 /**
  * Read the Kajabi column width (1-12) for a block child. Mirrors
@@ -23,26 +31,22 @@ import type { SectionComponent } from './serialize';
  */
 function getBlockColWidth(child: ReactElement): string {
   const props = (child.props ?? {}) as Record<string, unknown>;
-  if (typeof props.width === 'string' && props.width) return props.width;
-  if (typeof props.colWidth === 'string' && props.colWidth) return props.colWidth;
+  if (typeof props.width === "string" && props.width) return props.width;
+  if (typeof props.colWidth === "string" && props.colWidth) return props.colWidth;
   const ChildType = child.type as Partial<BlockComponent>;
-  if (typeof ChildType?.serialize === 'function') {
+  if (typeof ChildType?.serialize === "function") {
     try {
       const s = ChildType.serialize(props);
-      if (s && typeof s.width === 'string' && s.width) return s.width;
+      if (s && typeof s.width === "string" && s.width) return s.width;
     } catch {
       // ignore — preview-only fallback
     }
   }
-  return '12';
+  return "12";
 }
 
 function isBlockChild(child: ReactNode): child is ReactElement {
-  return (
-    isValidElement(child) &&
-    typeof child.type === 'function' &&
-    'kajabiType' in (child.type as object)
-  );
+  return isValidElement(child) && typeof child.type === "function" && "kajabiType" in (child.type as object);
 }
 
 /**
@@ -77,9 +81,9 @@ function wrapContentChildren(children: ReactNode): ReactNode {
           // Center each column horizontally when it's narrower than full row.
           // Kajabi adds mx-auto via Bootstrap; we replicate it with margin auto
           // so single-block rows (e.g. a width=8 accordion) center like Kajabi.
-          marginLeft: w < 12 ? 'auto' : undefined,
-          marginRight: w < 12 ? 'auto' : undefined,
-          boxSizing: 'border-box',
+          marginLeft: w < 12 ? "auto" : undefined,
+          marginRight: w < 12 ? "auto" : undefined,
+          boxSizing: "border-box",
         }}
       >
         {content}
@@ -93,7 +97,7 @@ function wrapContentChildren(children: ReactNode): ReactNode {
         visit((child.props as { children?: ReactNode }).children);
         return;
       }
-      if (isValidElement(child) && (child.props as Record<string, unknown>)?.['data-block-wrapper'] === 'true') {
+      if (isValidElement(child) && (child.props as Record<string, unknown>)?.["data-block-wrapper"] === "true") {
         const inner = (child.props as { children?: ReactNode }).children;
         const innerEl = Children.toArray(inner).find(isBlockChild) as ReactElement | undefined;
         if (innerEl) {
@@ -116,10 +120,10 @@ function wrapContentChildren(children: ReactNode): ReactNode {
     <div
       className="row"
       style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        justifyContent: 'center',
-        alignItems: 'flex-start',
+        display: "flex",
+        flexWrap: "wrap",
+        justifyContent: "center",
+        alignItems: "flex-start",
         columnGap: `${COL_GAP}px`,
         rowGap: `${ROW_GAP}px`,
         margin: 0,
@@ -135,13 +139,23 @@ function wrapContentChildren(children: ReactNode): ReactNode {
 // Source of truth: {% schema %} blocks in
 // public/base-theme/streamlined-home.zip → sections/{header,footer,section}.liquid.
 // Header schema also allows 'dropdown', 'user', 'hello_bar' — not in our React lib yet.
-const HEADER_ALLOWED = new Set(['logo', 'menu', 'cta', 'social_icons']);
+const HEADER_ALLOWED = new Set(["logo", "menu", "cta", "social_icons"]);
 const CONTENT_ALLOWED = new Set([
-  'text', 'cta', 'code', 'feature', 'image',
-  'pricing', 'social_icons', 'accordion', 'video_embed',
-  'video', 'card', 'form', 'link_list',
+  "text",
+  "cta",
+  "code",
+  "feature",
+  "image",
+  "pricing",
+  "social_icons",
+  "accordion",
+  "video_embed",
+  "video",
+  "card",
+  "form",
+  "link_list",
 ]);
-const FOOTER_ALLOWED = new Set(['logo', 'link_list', 'copyright', 'social_icons']);
+const FOOTER_ALLOWED = new Set(["logo", "link_list", "copyright", "social_icons"]);
 
 // ---- Shared style builder for preview ----
 
@@ -150,9 +164,9 @@ function buildSectionStyle(props: SectionLayoutProps): CSSProperties {
   if (props.background) style.backgroundColor = props.background;
   if (props.backgroundImage) {
     style.backgroundImage = `url(${props.backgroundImage})`;
-    style.backgroundSize = 'cover';
-    style.backgroundPosition = props.bgPosition ?? 'center';
-    if (props.backgroundFixed) style.backgroundAttachment = 'fixed';
+    style.backgroundSize = "cover";
+    style.backgroundPosition = props.bgPosition ?? "center";
+    if (props.backgroundFixed) style.backgroundAttachment = "fixed";
   }
   if (props.textColor) style.color = props.textColor;
 
@@ -166,25 +180,24 @@ function buildSectionStyle(props: SectionLayoutProps): CSSProperties {
 
   // Vertical alignment (content sections)
   if (props.vertical) {
-    style.display = 'flex';
-    style.flexDirection = 'column';
+    style.display = "flex";
+    style.flexDirection = "column";
     style.justifyContent =
-      props.vertical === 'top' ? 'flex-start' :
-      props.vertical === 'bottom' ? 'flex-end' : 'center';
+      props.vertical === "top" ? "flex-start" : props.vertical === "bottom" ? "flex-end" : "center";
   }
-  if (props.fullHeight) style.minHeight = '100vh';
+  if (props.fullHeight) style.minHeight = "100vh";
 
   return style;
 }
 
 function innerStyle(props: SectionLayoutProps): CSSProperties {
   const s: CSSProperties = {
-    maxWidth: props.fullWidth ? '100%' : (props.maxWidth ? `${props.maxWidth}px` : '1170px'),
-    margin: '0 auto',
-    width: '100%',
+    maxWidth: props.fullWidth ? "100%" : props.maxWidth ? `${props.maxWidth}px` : "1170px",
+    margin: "0 auto",
+    width: "100%",
   };
   if (props.horizontal) {
-    s.textAlign = props.horizontal as CSSProperties['textAlign'];
+    s.textAlign = props.horizontal as CSSProperties["textAlign"];
   }
   return s;
 }
@@ -196,11 +209,11 @@ type SectionProps = { children?: ReactNode } & SectionLayoutProps;
 export const HeaderSection: SectionComponent = (props) => {
   const base = buildSectionStyle(props);
   if (props.sticky) {
-    base.position = 'sticky';
+    base.position = "sticky";
     base.top = 0;
     base.zIndex = 40;
-  } else if (props.position === 'overlay') {
-    base.position = 'absolute';
+  } else if (props.position === "overlay") {
+    base.position = "absolute";
     base.top = 0;
     base.left = 0;
     base.right = 0;
@@ -208,15 +221,19 @@ export const HeaderSection: SectionComponent = (props) => {
   }
   const innerH: CSSProperties = {
     ...innerStyle(props),
-    display: 'flex',
-    alignItems: 'center',
+    display: "flex",
+    alignItems: "center",
     gap: 16,
     justifyContent:
-      props.horizontalAlignment === 'between' ? 'space-between' :
-      props.horizontalAlignment === 'around' ? 'space-around' :
-      props.horizontalAlignment === 'center' ? 'center' :
-      props.horizontalAlignment === 'right' ? 'flex-end' :
-      'space-between',
+      props.horizontalAlignment === "between"
+        ? "space-between"
+        : props.horizontalAlignment === "around"
+          ? "space-around"
+          : props.horizontalAlignment === "center"
+            ? "center"
+            : props.horizontalAlignment === "right"
+              ? "flex-end"
+              : "space-between",
   };
   return (
     <header style={base}>
@@ -224,7 +241,7 @@ export const HeaderSection: SectionComponent = (props) => {
     </header>
   );
 };
-HeaderSection.__kajabiSectionFlavor = 'header';
+HeaderSection.__kajabiSectionFlavor = "header";
 HeaderSection.__allowedBlockTypes = HEADER_ALLOWED;
 
 // ---- ContentSection ----
@@ -236,7 +253,7 @@ export const ContentSection: SectionComponent = (props) => {
     </section>
   );
 };
-ContentSection.__kajabiSectionFlavor = 'content';
+ContentSection.__kajabiSectionFlavor = "content";
 ContentSection.__allowedBlockTypes = CONTENT_ALLOWED;
 
 // ---- FooterSection ----
@@ -244,12 +261,12 @@ ContentSection.__allowedBlockTypes = CONTENT_ALLOWED;
 export const FooterSection: SectionComponent = (props) => {
   const inner: CSSProperties = {
     ...innerStyle(props),
-    display: 'flex',
-    flexDirection: props.verticalLayout ? 'column' : 'row',
+    display: "flex",
+    flexDirection: props.verticalLayout ? "column" : "row",
     gap: props.verticalLayout ? 24 : 32,
-    alignItems: props.verticalLayout ? 'center' : 'flex-start',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
+    alignItems: props.verticalLayout ? "center" : "flex-start",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
   };
   return (
     <footer style={buildSectionStyle(props)}>
@@ -257,5 +274,5 @@ export const FooterSection: SectionComponent = (props) => {
     </footer>
   );
 };
-FooterSection.__kajabiSectionFlavor = 'footer';
+FooterSection.__kajabiSectionFlavor = "footer";
 FooterSection.__allowedBlockTypes = FOOTER_ALLOWED;
