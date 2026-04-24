@@ -405,7 +405,7 @@ export async function exportThemeZip(
   }
 
   // Load base theme + original settings
-  const { zip, rootPrefix, originalSettings } = await loadBaseThemeZip();
+  const { zip, rootPrefix, originalSettings } = await loadBaseThemeZip(baseTheme);
 
   // Resolve asset references for export
   let settingsForMerge = settingsData;
