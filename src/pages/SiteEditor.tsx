@@ -117,18 +117,11 @@ export default function SiteEditor() {
 
   // Preview-time font loading: inject a Google Fonts <link> AND a <style>
   // rule that actually applies the families to the rendered preview tree.
-  // Without the style rule, fonts download but the preview still shows the
-  // browser default — which then differs from what Kajabi renders after
-  // export (where buildFontCssBlock writes real font-family rules).
   useEffect(() => {
     const fonts = site?.design?.fonts;
     if (!fonts) return;
     const families: string[] = [];
     const seen = new Set<string>();
-    // Some saved designs encode font weights inline as
-    // "Cormorant Garamond:400,500,500i". Strip everything from the first
-    // colon onward so both the Google Fonts request AND the CSS
-    // font-family declaration use the real family name.
     const cleanName = (name?: string) => (name ? name.split(':')[0].trim() : '');
     const add = (name?: string) => {
       const key = cleanName(name);
@@ -147,8 +140,6 @@ export default function SiteEditor() {
     if (site?.id) link.dataset.previewFonts = site.id;
     document.head.appendChild(link);
 
-    // Apply the families. Scope to .preview-root so we don't restyle the
-    // editor chrome. Heading wins on h1-h6; body applies to everything else.
     const style = document.createElement('style');
     const headingName = cleanName(fonts.heading);
     const bodyName = cleanName(fonts.body);
@@ -156,11 +147,6 @@ export default function SiteEditor() {
     const bodyStack = bodyName
       ? `'${bodyName}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
       : null;
-    // NOTE: the heading rule must also target descendants (em, span, strong, a)
-    // so inline accents like `<em>for everyday life</em>` inherit the heading
-    // family instead of being overridden by the broader `.preview-root *` body
-    // rule. Without `h1 *, h2 *, ...` the universal body selector wins on those
-    // children and the preview falls back to the body font (or serif default).
     style.textContent = [
       bodyStack ? `.preview-root, .preview-root * { font-family: ${bodyStack}; }` : '',
       headingStack ? `.preview-root :is(h1,h2,h3,h4,h5,h6), .preview-root :is(h1,h2,h3,h4,h5,h6) * { font-family: ${headingStack}; }` : '',
@@ -187,6 +173,12 @@ export default function SiteEditor() {
     setEditingName(false);
   }
 
+  async function commitSlug(next: string) {
+    if (!site) return;
+    const updated = await updateSite(site.id, { slug: next });
+    if (updated) setSite(updated);
+  }
+
   async function handleExport() {
     if (!site || !site.design) return;
     setBusy(true);
@@ -209,6 +201,7 @@ export default function SiteEditor() {
         global,
         themeSettings,
         customCss,
+        baseTheme: site.kind === 'landing_page' ? 'encore-page' : 'streamlined-home',
       });
       const safe = site.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site';
       triggerDownload(blob, `${safe}.zip`);
@@ -231,6 +224,9 @@ export default function SiteEditor() {
   const PreviewPage = site.design
     ? renderDesign(site.design, activePage, slotMap)
     : null;
+
+  const isLandingPage = site.kind === 'landing_page';
+  const exportLabel = isLandingPage ? 'Export landing page' : 'Export theme';
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -265,28 +261,38 @@ export default function SiteEditor() {
               <Pencil className="h-3 w-3 text-muted-foreground" />
             </button>
           )}
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            · {pageKeys.length} {pageKeys.length === 1 ? 'page' : 'pages'}
-          </span>
+          {isLandingPage ? (
+            <SlugField
+              key={site.id}
+              initial={site.slug ?? ''}
+              onCommit={commitSlug}
+            />
+          ) : (
+            <span className="hidden text-xs text-muted-foreground sm:inline">
+              · {pageKeys.length} {pageKeys.length === 1 ? 'page' : 'pages'}
+            </span>
+          )}
         </div>
 
-        {/* Page selector */}
-        <Select value={activePage} onValueChange={(v) => setActivePage(v as PageKey)}>
-          <SelectTrigger className="h-9 w-56">
-            <SelectValue placeholder="Select page" />
-          </SelectTrigger>
-          <SelectContent>
-            {pageKeys.map((key) => (
-              <SelectItem key={key} value={key}>
-                {pageLabel(key)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Page selector — hidden for landing pages (single page only). */}
+        {!isLandingPage && (
+          <Select value={activePage} onValueChange={(v) => setActivePage(v as PageKey)}>
+            <SelectTrigger className="h-9 w-56">
+              <SelectValue placeholder="Select page" />
+            </SelectTrigger>
+            <SelectContent>
+              {pageKeys.map((key) => (
+                <SelectItem key={key} value={key}>
+                  {pageLabel(key)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <Button onClick={handleExport} disabled={busy || !site.design} size="sm">
           <Download className="h-4 w-4" />
-          {busy ? 'Building zip…' : 'Export theme'}
+          {busy ? 'Building zip…' : exportLabel}
         </Button>
       </div>
 
@@ -299,5 +305,65 @@ export default function SiteEditor() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Inline slug editor for landing pages. Stays uncontrolled so the user can
+ * type freely; commits onBlur or Enter (slugified server-side too).
+ */
+function SlugField({
+  initial,
+  onCommit,
+}: {
+  initial: string;
+  onCommit: (next: string) => void | Promise<void>;
+}) {
+  const [value, setValue] = useState(initial);
+  const [editing, setEditing] = useState(false);
+
+  useEffect(() => {
+    setValue(initial);
+  }, [initial]);
+
+  function commit() {
+    setEditing(false);
+    if (value.trim() !== initial) {
+      onCommit(value.trim());
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 rounded-md border border-input bg-background px-2">
+        <span className="text-xs text-muted-foreground">/</span>
+        <Input
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') {
+              setValue(initial);
+              setEditing(false);
+            }
+          }}
+          className="h-7 w-40 border-0 px-1 text-xs shadow-none focus-visible:ring-0"
+          placeholder="slug"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      title="Edit slug"
+      className="hidden items-center gap-1 rounded px-1.5 py-0.5 font-mono text-xs text-muted-foreground hover:bg-muted hover:text-foreground sm:inline-flex"
+    >
+      <span>/{initial || 'no-slug'}</span>
+      <Pencil className="h-3 w-3" />
+    </button>
   );
 }

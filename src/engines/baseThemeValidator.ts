@@ -26,8 +26,23 @@ export interface BaseThemeDiagnostic {
 
 // ─── Constants ─────────────────────────────────────────────
 
-const BASE_THEME_URL = '/base-theme/streamlined-home.zip';
-const REQUIRED_FOLDERS = ['config', 'layouts', 'templates', 'sections'];
+export type BaseThemeName = 'streamlined-home' | 'encore-page';
+
+const BASE_THEME_URLS: Record<BaseThemeName, string> = {
+  'streamlined-home': '/base-theme/streamlined-home.zip',
+  'encore-page': '/base-theme/encore-page.zip',
+};
+
+/**
+ * Required folders per base theme. Encore-page is a single-template Kajabi
+ * theme — it has no `layouts/` folder; `templates/index.liquid` is the entry
+ * point and pulls the layout via `{% include "global_head" %}`.
+ */
+const REQUIRED_FOLDERS_BY_THEME: Record<BaseThemeName, string[]> = {
+  'streamlined-home': ['config', 'layouts', 'templates', 'sections'],
+  'encore-page': ['config', 'templates', 'sections', 'snippets'],
+};
+
 const REQUIRED_FILES = ['config/settings_data.json'];
 const EXPECTED_FOLDERS = ['snippets', 'assets'];
 
@@ -38,20 +53,29 @@ function isJunkFile(path: string): boolean {
 
 // ─── Singleton Cache ───────────────────────────────────────
 
-let cachedValidation: BaseThemeValidation | null = null;
-let cachedZip: JSZip | null = null;
+const cachedValidationByTheme = new Map<BaseThemeName, BaseThemeValidation>();
+const cachedZipByTheme = new Map<BaseThemeName, JSZip>();
 
-export function getCachedValidation(): BaseThemeValidation | null {
-  return cachedValidation;
+export function getCachedValidation(
+  theme: BaseThemeName = 'streamlined-home',
+): BaseThemeValidation | null {
+  return cachedValidationByTheme.get(theme) ?? null;
 }
 
-export function getCachedZip(): JSZip | null {
-  return cachedZip;
+export function getCachedZip(
+  theme: BaseThemeName = 'streamlined-home',
+): JSZip | null {
+  return cachedZipByTheme.get(theme) ?? null;
 }
 
-export function clearCache(): void {
-  cachedValidation = null;
-  cachedZip = null;
+export function clearCache(theme?: BaseThemeName): void {
+  if (theme) {
+    cachedValidationByTheme.delete(theme);
+    cachedZipByTheme.delete(theme);
+  } else {
+    cachedValidationByTheme.clear();
+    cachedZipByTheme.clear();
+  }
 }
 
 // ─── Detection ─────────────────────────────────────────────
@@ -78,15 +102,32 @@ function detectTopLevelFolder(zip: JSZip): string | null {
  * Validate the base theme zip. Fetches it, parses it, checks structure.
  * Caches the result so subsequent calls are instant.
  */
-export async function validateBaseTheme(forceRefresh = false): Promise<BaseThemeValidation> {
-  if (cachedValidation && !forceRefresh) return cachedValidation;
+export async function validateBaseTheme(
+  themeOrForce: BaseThemeName | boolean = 'streamlined-home',
+  forceRefreshArg = false,
+): Promise<BaseThemeValidation> {
+  // Backwards compat: old callers passed `validateBaseTheme(forceRefresh: boolean)`.
+  let theme: BaseThemeName;
+  let forceRefresh: boolean;
+  if (typeof themeOrForce === 'boolean') {
+    theme = 'streamlined-home';
+    forceRefresh = themeOrForce;
+  } else {
+    theme = themeOrForce;
+    forceRefresh = forceRefreshArg;
+  }
 
+  const cached = cachedValidationByTheme.get(theme);
+  if (cached && !forceRefresh) return cached;
+
+  const url = BASE_THEME_URLS[theme];
+  const requiredFolders = REQUIRED_FOLDERS_BY_THEME[theme];
   const diagnostics: BaseThemeDiagnostic[] = [];
 
   // 1. Fetch the zip
   let resp: Response;
   try {
-    resp = await fetch(BASE_THEME_URL);
+    resp = await fetch(url);
   } catch (e) {
     const result: BaseThemeValidation = {
       health: 'missing',
@@ -94,11 +135,11 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
       diagnostics: [{
         level: 'error',
         code: 'FETCH_FAILED',
-        message: `Cannot reach base theme at ${BASE_THEME_URL}: ${e}`,
+        message: `Cannot reach base theme at ${url}: ${e}`,
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidation = result;
+    cachedValidationByTheme.set(theme, result);
     return result;
   }
 
@@ -113,7 +154,7 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidation = result;
+    cachedValidationByTheme.set(theme, result);
     return result;
   }
 
@@ -133,7 +174,7 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
       }],
       checkedAt: new Date().toISOString(),
     };
-    cachedValidation = result;
+    cachedValidationByTheme.set(theme, result);
     return result;
   }
 
@@ -143,12 +184,12 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
     diagnostics.push({
       level: 'warning',
       code: 'NO_ROOT_FOLDER',
-      message: 'No single top-level folder detected. Expected a folder like streamlined-home/.',
+      message: `No single top-level folder detected. Expected a folder like ${theme}/.`,
     });
   }
 
   // 4. Check required folders
-  for (const folder of REQUIRED_FOLDERS) {
+  for (const folder of requiredFolders) {
     const fullPath = rootPrefix + folder + '/';
     const hasFolder = Object.keys(zip.files).some(f => f.startsWith(fullPath));
     if (!hasFolder) {
@@ -248,8 +289,8 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
     checkedAt: new Date().toISOString(),
   };
 
-  cachedValidation = result;
-  cachedZip = zip;
+  cachedValidationByTheme.set(theme, result);
+  cachedZipByTheme.set(theme, zip);
   return result;
 }
 
@@ -259,9 +300,12 @@ export async function validateBaseTheme(forceRefresh = false): Promise<BaseTheme
  * Returns the cached health or triggers a background check.
  * Never blocks — returns 'checking' if no cached result exists yet.
  */
-export function getBaseThemeHealth(): BaseThemeHealth {
-  if (cachedValidation) return cachedValidation.health;
+export function getBaseThemeHealth(
+  theme: BaseThemeName = 'streamlined-home',
+): BaseThemeHealth {
+  const cached = cachedValidationByTheme.get(theme);
+  if (cached) return cached.health;
   // Trigger background validation
-  validateBaseTheme().catch(() => {});
+  validateBaseTheme(theme).catch(() => {});
   return 'checking';
 }

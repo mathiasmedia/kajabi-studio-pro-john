@@ -9,6 +9,7 @@
 import type { ReactNode } from 'react';
 import { serializeTree, type PageTrees } from './serialize';
 import { exportThemeZip } from '@/engines/exportEngine';
+import type { BaseThemeName } from '@/engines/baseThemeValidator';
 import type { ProjectAsset } from '@/types/assets';
 import { resolveFont, buildFontCssBlock } from '@/engines/fontStrategy';
 import { buildTypeScaleCssBlock, stripTypeScaleCssBlock, type TypeScale } from '@/engines/typeScaleStrategy';
@@ -49,6 +50,12 @@ export interface ExportFromTreeOptions {
    * store, checkout) that we don't render ourselves.
    */
   customCss?: string;
+  /**
+   * Which Kajabi base theme zip to merge into. Defaults to 'streamlined-home'
+   * (full multi-page theme used by Sites). Landing pages should pass
+   * 'encore-page' — Kajabi's single-template landing page theme.
+   */
+  baseTheme?: BaseThemeName;
 }
 
 /** Strip any prior PathX font block so re-injection doesn't stack duplicates. */
@@ -134,7 +141,9 @@ export async function exportFromTree(
   const { settingsData } = serializeTree(tree);
   const withFonts = injectGlobalCss(settingsData, opts.global);
   const withTheme = mergeThemeSettings(withFonts, opts.themeSettings, opts.customCss);
-  return exportThemeZip(withTheme, opts.assets ?? []);
+  return exportThemeZip(withTheme, opts.assets ?? [], undefined, {
+    baseTheme: opts.baseTheme,
+  });
 }
 
 /**

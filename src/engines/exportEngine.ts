@@ -15,7 +15,7 @@
 import JSZip from 'jszip';
 import { validateAndRepairSections, getExportBlockingErrors } from './kajabiFieldSchema';
 import { resolveAssetsForExport, downloadAssetBlob, validateAssets } from './assetManager';
-import { getCachedZip, getCachedValidation, validateBaseTheme } from './baseThemeValidator';
+import { getCachedZip, getCachedValidation, validateBaseTheme, type BaseThemeName } from './baseThemeValidator';
 import { checkForDefaultFallbacks, runParityAudit, type ParityAuditResult } from './exportParityAudit';
 import { transformForExport, buildArchetypeMap, type TransformReport } from './exportTransforms';
 import { enforceSettingSafety } from './settingSafety';
@@ -25,6 +25,8 @@ import type { ProjectAsset } from '@/types/assets';
 import type { VisualPlanV1 } from '@/types/schemas';
 
 const SYSTEM_TEMPLATE_SET = new Set<string>(SYSTEM_TEMPLATES);
+
+const DEFAULT_BASE_THEME: BaseThemeName = 'streamlined-home';
 
 const JUNK_PATTERNS = ['__MACOSX', '.DS_Store', '/._', '/.'];
 
@@ -55,14 +57,16 @@ function detectTopLevelFolder(zip: JSZip): string | null {
  * Load and clean the base theme zip. Returns the zip + root prefix + the
  * original settings_data.json parsed as an object.
  */
-async function loadBaseThemeZip(): Promise<{
+async function loadBaseThemeZip(
+  baseTheme: BaseThemeName = DEFAULT_BASE_THEME,
+): Promise<{
   zip: JSZip;
   rootPrefix: string;
   originalSettings: Record<string, unknown> | null;
 }> {
   // Try to use the cached validated zip first
-  const cachedZip = getCachedZip();
-  const cachedValidation = getCachedValidation();
+  const cachedZip = getCachedZip(baseTheme);
+  const cachedValidation = getCachedValidation(baseTheme);
 
   let sourceZip: JSZip | null = null;
 
@@ -70,25 +74,25 @@ async function loadBaseThemeZip(): Promise<{
     // Clone the cached zip so we don't mutate it
     const buf = await cachedZip.generateAsync({ type: 'arraybuffer' });
     sourceZip = await JSZip.loadAsync(buf);
-    console.log('[Export] Using cached + validated base theme zip');
+    console.log(`[Export] Using cached + validated base theme zip (${baseTheme})`);
   } else {
     // Validate first, then use
-    const validation = await validateBaseTheme();
+    const validation = await validateBaseTheme(baseTheme);
     if (validation.health === 'missing') {
-      throw new Error('Base theme zip is missing. Export cannot proceed.');
+      throw new Error(`Base theme zip "${baseTheme}" is missing. Export cannot proceed.`);
     }
     if (validation.health === 'invalid') {
       const errors = validation.diagnostics.filter(d => d.level === 'error').map(d => d.message);
-      throw new Error(`Base theme zip is invalid: ${errors.join('; ')}`);
+      throw new Error(`Base theme zip "${baseTheme}" is invalid: ${errors.join('; ')}`);
     }
-    const validatedZip = getCachedZip();
+    const validatedZip = getCachedZip(baseTheme);
     if (validatedZip) {
       const buf = await validatedZip.generateAsync({ type: 'arraybuffer' });
       sourceZip = await JSZip.loadAsync(buf);
     } else {
       // Final fallback: direct fetch
       try {
-        const resp = await fetch('/base-theme/streamlined-home.zip');
+        const resp = await fetch(`/base-theme/${baseTheme}.zip`);
         if (resp.ok) {
           const buf = await resp.arrayBuffer();
           sourceZip = await JSZip.loadAsync(buf);
@@ -102,7 +106,7 @@ async function loadBaseThemeZip(): Promise<{
   if (sourceZip) {
     const existingRoot = detectTopLevelFolder(sourceZip);
     const cleanZip = new JSZip();
-    const rootPrefix = existingRoot || 'streamlined-home/';
+    const rootPrefix = existingRoot || `${baseTheme}/`;
 
     let originalSettings: Record<string, unknown> | null = null;
 
@@ -142,7 +146,7 @@ async function loadBaseThemeZip(): Promise<{
 
   // Fallback: create minimal structure
   const zip = new JSZip();
-  const rootPrefix = 'streamlined-home/';
+  const rootPrefix = `${baseTheme}/`;
   zip.file(`${rootPrefix}layouts/theme.liquid`, `<!DOCTYPE html>
 <html>
 <head>
@@ -361,11 +365,19 @@ function validateZipShape(zip: JSZip, rootPrefix: string): { valid: boolean; iss
 
 // ---- Main export ----
 
+export interface ExportThemeZipOptions {
+  /** Which Kajabi base theme to merge into. Defaults to 'streamlined-home'. */
+  baseTheme?: BaseThemeName;
+}
+
 export async function exportThemeZip(
   settingsData: Record<string, unknown>,
   projectAssets: ProjectAsset[] = [],
   visualPlan?: VisualPlanV1,
+  options: ExportThemeZipOptions = {},
 ): Promise<Blob> {
+  const baseTheme: BaseThemeName = options.baseTheme ?? DEFAULT_BASE_THEME;
+
   // Structural validation of generated data
   const validation = validateSettingsData(settingsData);
   if (!validation.valid) {
@@ -393,7 +405,7 @@ export async function exportThemeZip(
   }
 
   // Load base theme + original settings
-  const { zip, rootPrefix, originalSettings } = await loadBaseThemeZip();
+  const { zip, rootPrefix, originalSettings } = await loadBaseThemeZip(baseTheme);
 
   // Resolve asset references for export
   let settingsForMerge = settingsData;
