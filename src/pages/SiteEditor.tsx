@@ -160,6 +160,20 @@ export default function SiteEditor() {
     };
   }, [site?.design?.fonts, site?.id]);
 
+  useEffect(() => {
+    const css = site?.design?.customCss?.trim();
+    if (!css) return;
+
+    const style = document.createElement('style');
+    style.textContent = css;
+    if (site?.id) style.dataset.previewCustomCss = site.id;
+    document.head.appendChild(style);
+
+    return () => {
+      style.remove();
+    };
+  }, [site?.design?.customCss, site?.id]);
+
   async function commitName() {
     if (!site) return;
     const trimmed = nameDraft.trim();
