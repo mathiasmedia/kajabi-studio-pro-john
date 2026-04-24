@@ -39,6 +39,8 @@ const App = () => (
                 </RequireAuth>
               }
             />
+            {/* Legacy /landing-pages → unified workspace at "/" */}
+            <Route path="/landing-pages" element={<Navigate to="/" replace />} />
             <Route path="/export" element={<Navigate to="/" replace />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
