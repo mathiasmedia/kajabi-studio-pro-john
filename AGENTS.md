@@ -350,6 +350,93 @@ This applies to:
 
 **Pre-flight check before saving any template or page:** scan every `content` section's props. If `fullWidth: true` is set and the expert never asked for it, remove it. The Mastermind landing page hero is a real example of this bug — the hero text was set to full width and the headline spans the entire screen, making the layout feel unbalanced and unfinished.
 
+### 4.13 NEVER include `©` or a year in footer copyright text
+
+Kajabi's footer copyright snippet **automatically prepends `© <current year>`** to whatever string you put in the `copyright` block's text field. So if you write `"© 2026 Acme Coaching · All rights reserved"`, Kajabi renders `© 2026 © 2026 Acme Coaching · All rights reserved` — duplicate symbol, duplicate year, looks broken.
+
+**The rule:** the `copyright` block's text MUST start directly with the brand/owner name or message, with no leading `©`, no leading year, no leading `Copyright`. Kajabi adds the prefix.
+
+✅ **Correct:**
+```ts
+{ type: "copyright", props: { text: "Acme Coaching · All rights reserved" } }
+{ type: "copyright", props: { text: "Jane Doe Studio" } }
+{ type: "copyright", props: { text: "Built with care in Berlin" } }
+```
+
+❌ **Wrong:**
+```ts
+{ type: "copyright", props: { text: "© 2026 Acme Coaching" } }              // duplicate © and year
+{ type: "copyright", props: { text: "© Acme Coaching" } }                    // duplicate ©
+{ type: "copyright", props: { text: "Copyright 2026 Acme Coaching" } }       // "Copyright" + year duplicates the prefix
+{ type: "copyright", props: { text: "2026 · Acme Coaching" } }               // duplicate year
+```
+
+**Pre-flight check before saving any page (especially footers):** for every `copyright` block, strip any leading `©`, `Copyright`, or 4-digit year from the text. The result should read naturally **after** Kajabi prepends `© 2026 ` to it.
+
+### 4.14 When the expert attaches a real image in chat — upload it via `upload-site-image`
+
+🚨 **This is a common silent failure.** When the expert drops a real photo into chat (their headshot, a logo, a product shot, a venue photo) and asks "use this in the hero" / "make this the about photo" / "replace the founder image with this", you receive it as a virtual `user-uploads://image-XX.png` path. **That path is NOT a public URL.** You cannot put it in `design` JSON, you cannot pass it to Kajabi, and the existing `generate-site-image` edge function only creates NEW images from a text prompt — it does not accept binaries.
+
+If you skip the upload step and just write the hero JSON without a real `https://` URL, one of two things happens:
+- You drop the image entirely → hero renders with no `backgroundImage` → expert sees a flat color where their photo should be.
+- You write `{ slot: "x" }` pointing to a row that doesn't exist → renderer demotes to fallback color (§4.9) → expert sees a black/teal box.
+
+Either way the expert reports: "the image I sent didn't show up."
+
+**The correct flow — every time the expert attaches an image:**
+
+1. **Read the bytes.** Copy the upload to a real path so you can read it from a script:
+   ```bash
+   code--copy user-uploads://image-89.png /tmp/upload.png
+   ```
+2. **Base64-encode and POST to `upload-site-image`** with the thin-client app token. Example one-shot Deno script:
+   ```ts
+   // /tmp/upload.ts — run with: deno run -A /tmp/upload.ts
+   const SUPABASE_URL = "<from .env: VITE_SUPABASE_URL>";
+   const APP_TOKEN = "<thin client app token — same one used for generate-site-image>";
+   const SITE_ID = "<site uuid from /sites/:siteId>";
+
+   const bytes = await Deno.readFile("/tmp/upload.png");
+   // Chunked base64 encode (avoids stack overflow on large files)
+   let bin = "";
+   const CHUNK = 8192;
+   for (let i = 0; i < bytes.length; i += CHUNK) {
+     bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+   }
+   const imageBase64 = btoa(bin);
+
+   const resp = await fetch(`${SUPABASE_URL}/functions/v1/upload-site-image`, {
+     method: "POST",
+     headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN },
+     body: JSON.stringify({
+       siteId: SITE_ID,
+       imageBase64,
+       mimeType: "image/png",   // or image/jpeg, image/webp, image/gif
+       filename: "ashley-headshot.png",   // optional, for nicer object key
+       alt: "Ashley Kumar, DPT",          // optional
+     }),
+   });
+   if (!resp.ok) throw new Error(`Upload failed: ${resp.status} ${await resp.text()}`);
+   const { url } = await resp.json();
+   console.log("Public URL:", url);
+   ```
+3. **Wire the returned `url` directly into `design`** as a regular `https://` string on the relevant block/section prop (`backgroundImage`, `src`, `logoSrc`, etc.). Do NOT use `{ slot }` refs — there's no row to back them in thin-client mode (per §4.9 default to direct URLs).
+4. **GET → mutate → POST the `design` via `update-site-design`** as usual (§3.1). Keep every other page intact.
+5. **Tell the expert it's wired** and ask them to refresh the preview.
+
+**Limits and constraints:**
+- Max 10 MB decoded. If larger, ask the expert to compress/resize before re-uploading.
+- Allowed mime types: `image/png`, `image/jpeg`, `image/webp`, `image/gif`. Reject anything else (HEIC, SVG, PDF) and ask the expert to convert.
+- The base64 string can include or omit the `data:image/png;base64,` prefix — the function handles both. Always pass `mimeType` explicitly when the prefix is omitted.
+- The returned URL is a permanent public URL on the `site-images` bucket. Safe to store in `design` forever.
+
+**When the expert attaches multiple images in one message:** upload them in parallel, then wire each one to its target slot. Confirm with the expert which image goes where if it isn't obvious from the message.
+
+**Never:**
+- Put `user-uploads://...`, `blob:`, `data:`, or `/src/...` paths in `design` JSON.
+- Skip the upload and ask the expert to "host the image somewhere and paste a URL" — you have the upload function, use it.
+- Use `generate-site-image` to "regenerate something similar" when the expert sent a real photo. The expert wants THEIR exact photo, not an AI guess.
+
 ---
 
 ## 5. How to talk to the expert
@@ -464,7 +551,7 @@ Pull these files verbatim from `@kajabi-studio-max` into the thin client. They a
 - `src/integrations/supabase/client.ts` — auto-generated per project, leave alone.
 - `.env`, `supabase/config.toml`, `supabase/migrations/**` — managed by the platform.
 - `supabase/functions/**` — edge functions are deployed from master and shared; thin clients should never touch them.
-- `AGENTS.md` itself — re-sync this file separately and ONLY if the operator explicitly says "also sync AGENTS.md".
+- `AGENTS.md` itself — re-sync this file separately and ONLY if the operator explicitly says **"also sync AGENTS.md"** (as part of a full master sync) OR **"sync AGENTS.md from master"** / **"sync agents from master"** (standalone, no engine sync). The standalone phrasing is the fast path when only the guide changed (e.g. a new section like §4.14 was added) and the engine + edge functions are already current. When you see a standalone trigger: read `AGENTS.md` from project `kajabi-studio-max` (ID `4fd872bc-5636-4a8a-bde9-a334a0656f59`) via `cross_project--read_project_file`, overwrite the local file, and report back with a one-line summary of what changed (diff the new sections against the old). Do NOT touch any other files. Do NOT run a full §8.1 sync.
 - Anything outside the lists in §8.1.
 
 ### 8.3 How to do it
