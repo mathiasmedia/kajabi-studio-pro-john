@@ -26,21 +26,44 @@ export interface BaseThemeDiagnostic {
 
 // ─── Constants ─────────────────────────────────────────────
 
-export type BaseThemeName = 'streamlined-home' | 'encore-page';
+/**
+ * Supported Kajabi base themes. Each maps to a zip in `public/base-theme/`.
+ *
+ *  - `streamlined-home`     → Standard multi-page website theme (default for kind=site).
+ *  - `streamlined-home-pro` → Pro multi-page website theme (sliders, animations,
+ *                              column layouts, extra block types).
+ *  - `encore-page`          → Standard single-page landing page theme (default for kind=landing_page).
+ *  - `encore-page-pro`      → Pro landing page theme (full feature parity with website-pro
+ *                              plus blog/newsletter/sidebar snippets).
+ *
+ * Per-block schemas are 100% backward compatible across Standard ↔ Pro within
+ * the same family, so a site authored against Standard can export against Pro
+ * (and vice versa) without migration.
+ */
+export type BaseThemeName =
+  | 'streamlined-home'
+  | 'streamlined-home-pro'
+  | 'encore-page'
+  | 'encore-page-pro';
 
 const BASE_THEME_URLS: Record<BaseThemeName, string> = {
   'streamlined-home': '/base-theme/streamlined-home.zip',
+  'streamlined-home-pro': '/base-theme/streamlined-home-pro.zip',
   'encore-page': '/base-theme/encore-page.zip',
+  'encore-page-pro': '/base-theme/encore-page-pro.zip',
 };
 
 /**
- * Required folders per base theme. Encore-page is a single-template Kajabi
- * theme — it has no `layouts/` folder; `templates/index.liquid` is the entry
- * point and pulls the layout via `{% include "global_head" %}`.
+ * Required folders per base theme. Encore-page (Standard + Pro) is a
+ * single-template Kajabi theme — no `layouts/` folder; `templates/index.liquid`
+ * is the entry point and pulls the layout via `{% include "global_head" %}`.
+ * The streamlined-home family ships the full theme structure including layouts.
  */
 const REQUIRED_FOLDERS_BY_THEME: Record<BaseThemeName, string[]> = {
   'streamlined-home': ['config', 'layouts', 'templates', 'sections'],
+  'streamlined-home-pro': ['config', 'layouts', 'templates', 'sections'],
   'encore-page': ['config', 'templates', 'sections', 'snippets'],
+  'encore-page-pro': ['config', 'templates', 'sections', 'snippets'],
 };
 
 const REQUIRED_FILES = ['config/settings_data.json'];
