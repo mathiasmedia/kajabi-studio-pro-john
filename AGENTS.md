@@ -545,6 +545,12 @@ Pull these files verbatim from `@kajabi-studio-max` into the thin client. They a
 - `src/types/assets.ts`
 - `src/types/schemas.ts`
 
+**Base theme assets (Pro variants — added 2026-04):**
+- `public/base-theme/streamlined-home.zip`
+- `public/base-theme/streamlined-home-pro.zip`
+- `public/base-theme/encore-page.zip`
+- `public/base-theme/encore-page-pro.zip`
+
 ### 8.2 What NOT to sync
 
 - `src/integrations/supabase/types.ts` — auto-generated per project, leave alone.
@@ -604,3 +610,207 @@ When you (the thin-client AI) see that phrase, sync ONLY these files from `kajab
 Skip everything else in §8.1. Skip type-checking unrelated areas. After writing the files, tell the operator: "Landing pages synced — 11 files updated. After a hard refresh, the workspace at `/` shows two tabs (Websites / Landing pages), a single 'New ▾' button to create either, and a 'Set as default' pin so each user can choose which tab opens first."
 
 If `tsc --noEmit` flags an error in a file you didn't sync, that means the engine is also out of date and the operator should run a full **"sync from master"** afterwards. Don't try to patch the error locally.
+
+
+### 8.8 Targeted "sync base themes from master" (Pro template plumbing)
+
+When the operator pastes the literal phrase **"sync base themes from master"** (or **"sync pro themes from master"**), this is a fast path for picking up just the Pro template plumbing without re-syncing the entire engine. Sync ONLY these files from `kajabi-studio-max` (project ID `4fd872bc-5636-4a8a-bde9-a334a0656f59`), in parallel:
+
+- `public/base-theme/streamlined-home.zip` — Standard website base theme
+- `public/base-theme/streamlined-home-pro.zip` — **Pro** website base theme (sliders, animations, extra blocks)
+- `public/base-theme/encore-page.zip` — Standard landing page base theme
+- `public/base-theme/encore-page-pro.zip` — **Pro** landing page base theme (full Kajabi feature set)
+- `src/engines/baseThemeValidator.ts` — `BaseThemeName` union + URL map (now 4 themes)
+- `src/lib/siteStore.ts` — `base_theme` field on `Site`, `resolveBaseTheme(site)` helper
+- `src/pages/SitesDashboard.tsx` — Standard / Pro toggle in create modals
+- `src/pages/SiteEditor.tsx` — passes `resolveBaseTheme(site)` to `exportFromTree`
+
+**About the `base_theme` column:** the `sites` table has a nullable `base_theme TEXT` column with a check constraint allowing `streamlined-home`, `streamlined-home-pro`, `encore-page`, `encore-page-pro`. Legacy sites (NULL) fall back to the Standard theme matching their `kind` via `resolveBaseTheme(site)`. The choice is locked at site creation — there is **no editor-side dropdown** to change it later (would silently break sites that depend on Pro-only blocks/fields).
+
+**About Pro-only blocks/fields:** the Pro themes ship additional snippets (`block_feature_icon`, `block_code_tabs`, `block_search_filter`, `column_*_slider`) and ~50 extra section-level fields (sliders, scroll animations, advanced borders). These are **additive only** — every existing Standard block/field renders identically in Pro. Sites built for Standard can be safely re-exported against Pro without changes. **See §9 below for the full Pro-only catalog** (verified field IDs, override sentinels, font/CSS-class behavior) — required reading before composing Pro-specific blocks. Master also keeps the same content at `mem://reference/pro-template-capabilities.md`.
+
+After syncing, tell the operator: "Base themes synced — 8 files updated. Standard and Pro variants now available for both Websites and Landing pages, selected at site creation."
+
+
+---
+
+## 9. Pro template capabilities (inline reference for thin clients)
+
+> This section mirrors `mem://reference/pro-template-capabilities.md` on master. It lives in `AGENTS.md` so every thin client gets it via "sync AGENTS.md from master" — thin clients cannot read master memory files. Keep the two in sync: when you update one, update the other.
+
+### 9.0 When this applies
+
+A site uses a Pro theme when `resolveBaseTheme(site)` returns `streamlined-home-pro` or `encore-page-pro`. Otherwise Pro-only blocks/fields are **silently dropped** by Kajabi. **NEVER use Pro blocks/fields on a Standard site.** Always check `site.base_theme` before composing Pro features.
+
+Standard ↔ Pro is **additive only**: every Standard block/field renders identically in Pro. A Standard site can be safely re-exported against Pro without changes.
+
+### 9.1 Pro header (Full-Time Hamburger / FTH)
+
+Section-level toggle: `collapsed: true` (a.k.a. "Full-time hamburger menu") forces the mobile slide-in panel to also show on desktop. Identical behavior on both — slide-in from the right. Composes with overlay/sticky modes (still don't enable those unless explicitly asked, per §4.4). Knobs: `fth_menu_text_color`, `fth_menu_background_color`, `fth_close_button_color` (`dark`/`light`), `hamburger_icon_color`. Optional — leaving it off keeps the standard horizontal nav.
+
+### 9.2 Pro footer (`footer_pro`)
+
+A separate section type that exists alongside the standard footer for back-compat. **Mutual exclusion is author-managed** via per-section visibility toggles — both footers expose `Hide on Desktop` + `Hide on Mobile` fields under their Desktop/Mobile groups. **There is no theme-level "use_pro_footer" switch.** When emitting a Pro site that uses `footer_pro`, the serializer MUST also flip the standard footer's hide-on-desktop + hide-on-mobile to `true` (otherwise both render and the visitor sees two stacked footers).
+
+`footer_pro` accepts ALL block types (not just the standard 5). Adds full section-level controls (padding, alignment, border, bg, 12-col grid) and a merged copyright + Powered-by-Kajabi mode.
+
+### 9.3 Pro slider (any section, any blocks)
+
+Section-level toggle: `enable_slider: true` turns the section's blocks into a Swiper carousel. Works with any block type. Knobs: `slides_per_view_desktop` / `slides_per_view_mobile` (independent), `transition` (slide/fade/cube/coverflow/flip), `speed`, `autoplay`, `autoplay_delay`, `loop`. Arrows & dots are fully styleable (custom SVG, color, size, position). **`block_offset_before` / `block_offset_after`** keep N blocks OUTSIDE the slider but inside the same section — this is the ONLY correct way to keep a heading visually grouped with a carousel.
+
+### 9.4 Pro columns (2 or 3 per section)
+
+Section-level: `columns: 2` or `columns: 3`. Per-section — every section can have its own config. Per-column width via 12-col grid (e.g. 6/6, 9/3, 4/4/4) — must sum to 12. Per-block `column: 1 | 2 | 3` assignment (defaults to 1). **Block width inside a column** uses the block's own `width: "12"` to fill (block width is RELATIVE to the column, not the page). Multiple blocks in the same column stack vertically in array order. `column_gap` in px. Sliders work INSIDE a column. Mobile collapses 1 → 2 → 3 automatically.
+
+### 9.5 Pro tabs (sections-as-tabs)
+
+Mandatory order:
+1. Build each tab's content as its own separate `ContentSection` (siblings on the page).
+2. On EACH participating section: `use_as_tab: true`, unique lowercase `tab_slug` (e.g. `annual`, `monthly`), and `default_tab: true` on EXACTLY ONE.
+3. Add a `tabs` block in a section ABOVE the participating sections.
+4. Inside the `tabs` block, define each tab as `{ name, slug }` — slug MUST match `tab_slug` on the section. Up to 5 tabs.
+
+Style: `pills` (default) or `tabs`. Alignment left/center/right. `tab_fade_effect` is on by default — uncheck on each participating section for instant swaps. **Slug typos silently hide sections — always normalize to lowercase.**
+
+### 9.6 Search form + Search filter blocks
+
+TWO Pro-only blocks that target sibling `feature` blocks in the SAME section (cannot reach other sections). Independent — keyword search and filters don't clear each other's data, but using one resets the other's UI state.
+
+- **`block_search_form`** — keyword input, free-text match against features in the same section.
+- **`block_search_filter`** — up to 5 filter groups (toggle each on/off). Per-filter: `filter_N_title` + comma-separated `filter_N_options`. Logic: within one group → OR; across groups → AND. Layouts: stacked checkboxes (default), `use_dropdown_filters: true`, `use_dropdowns_horizontally: true` (combine for horizontal dropdowns above the grid).
+
+Canonical sidebar: Pro columns 3/9 with search+filter left, 3-up feature grid right. Set section `horizontal: left` so filtered cards collapse left.
+
+### 9.6b Pro library / products section (custom filtering)
+
+Pro upgrades the Kajabi `products` section with built-in filtering. **§4.10 still holds** — keep `library` as `{ kind: "raw", type: "products" }`. On Pro you can pass extra `settings`:
+
+- **Static filter** (author-controlled): `static_filter_enabled: true`, `static_filter_mode: "include" | "exclude"`, `static_filter_keywords: "launch, business"` (CSV against product title keywords). Canonical: one section with `include` for "Featured", a second with `exclude` for "All products".
+- **Dynamic filter** (visitor-controlled): `dynamic_filter_enabled: true`, `dynamic_filter_categories: "blogging, growth, launch"` (CSV; renders as dropdown). Static + dynamic compose.
+
+Multiple `products` sections per library page is the supported pattern for category grouping. Still no hardcoded product cards.
+
+### 9.7 26 pre-designed section presets
+
+Layout starters (white-boxes, featured testimonial, team grid, gradient CTA, "as seen on" logos, splits, 3-feature grids, etc.). Inherit theme styles automatically. Optional — use as scaffolds, then customize.
+
+### 9.8 Style guide / theme settings extras
+
+#### 9.8a Pro button system (global + per-button overrides)
+
+Pro replaces Kajabi's single-button styling with a **dark/light pair** model so the same site can ship buttons over both light and dark sections. Configure globally in **Page Settings → Style guide → Buttons**, override per-CTA. **Field IDs below are the literal Kajabi `settings_data.json` keys** — verified against `streamlined-home-pro/config/settings_schema.json`.
+
+Global theme settings:
+- `btn_background_color` (label "Button Color **Dark**") + `btn_text_color` (label "Button Color **Light**") — Pro repurposes these as the dark/light brand pair. **Counterintuitive:** `btn_text_color` does NOT mean text color — it's the LIGHT half of the pair. Authors pick ONE pair sitewide; each button picks which member via `btn_type`.
+- `btn_type`: `"dark"` | `"light"` (default `"dark"`).
+- `btn_style`: `"solid"` | `"outline"` | `"text"` (default `"solid"`). Pro adds `"text"` (no padding/border, just a styled link).
+- `btn_size`, `btn_width`, `btn_border_radius` — same as Standard.
+- **Advanced options gated behind `view_advanced_button_customizations: true`** (theme setting toggle). Until that's on, the fields below are hidden in the Kajabi UI but still emit/respect from JSON.
+- `btn_override_shadow`: `"on"` | `"off"` (default `"on"`).
+- `btn_inverse_on_hover`: `"normal"` | `"inverse"` (default `"normal"`) — `"inverse"` swaps fg/bg on hover (works on solid + outline; **no-op on `text`**).
+- `btn_uppercase`: `"on"` | `"off"` (default `"off"`).
+- `select_custom_btn_font`: `"inherit"` | `"primary"` | `"accent"` (default `"inherit"` = "Do Not Override").
+- `btn_font_weight` — any of 9 weights (100–900) the loaded font supports.
+- `custom_body_button_line-height`, `btn_letter-spacing` (note: **hyphens, not underscores**, in these keys).
+- `custom_button_font_size_desktop` + `custom_button_font_size_mobile` (independent).
+- `button_border_thickness` — px.
+- `button_vertical_padding` + `button_horizontal_padding` (two separate fields, NOT a `padding` object).
+- `custom_button_top_margin` + `custom_button_bottom_margin`.
+
+Per-button overrides:
+- Every global field above also exists as a per-block override on every `cta` block (and text blocks with inline buttons).
+- **"Do Not Override" sentinel = the literal string `"inherit"` for EVERY override field** (verified in `snippets/block_cta.liquid` — every override field is checked with `{% if block.settings.X != 'inherit' %}`). Applies even to numerics (padding/margin/font-size) and colors. **Serializer rule:** to preserve global behavior, emit `"inherit"` — NOT `""`, NOT omit the key. Liquid's `default:` filter only triggers on `nil`; the override fields are explicitly compared to `'inherit'`, so empty string is treated as a real override and produces broken CSS like `font-size: ;`.
+
+Style + hover behavior (verified in `snippets/block_cta.liquid`):
+- `btn_style: "text"` **DOES respect the dark/light pair via `btn_type`** — there are dedicated `text + dark` and `text + light` branches. Text buttons use the pair color as the link color (no fallback to body text).
+- `btn_inverse_on_hover: "inverse"` is implemented ONLY in the `solid` and `outline` branches — **no-op on `text`**.
+
+Composition rule: still follow §4.7 — pick the dark/light pair ONCE per site, set globals, override only for genuine variant needs.
+
+#### 9.8b Pro form input system (global + per-form overrides)
+
+Mirrors the button system for opt-in / contact / search inputs. Configure globally in **Page Settings → Style guide → Form styles**. **Field IDs verified against `streamlined-home-pro/config/settings_schema.json`.**
+
+Global theme settings:
+- `form_input_color_dark` + `form_input_color_light` — input bg pair.
+- `form_input_placeholder_color_dark` + `form_input_placeholder_color_light` — placeholder per pair member. (Plus the existing standard `color_placeholder` global.)
+- `form_new_input_type`: `"dark"` | `"light"` (default `"light"`).
+- `form_new_input_style`: `"solid"` | `"transparent"` (default `"solid"`) — `"transparent"` shows the section bg through (use on colored/dark sections for borderless fields).
+- `form_input_border_radius` — px (Pro-only; Standard has no input rounding).
+- **Advanced gated behind `use_pro_form_customizations: true`.**
+- `form_input_border_thickness`.
+- `form_input_font`: `"inherit"` | `"primary"` | `"accent"` (default `"inherit"`).
+- `form_input_font_weight`, `form_input_line-height` (hyphen), `form_input_letter-spacing` (hyphen).
+- `form_input_font_size_desktop` + `form_input_font_size_mobile`.
+- `form_input_vertical_padding` + `form_input_horizontal_padding` (two separate fields).
+- `form_input_top_margin` + `form_input_bottom_margin`.
+
+Per-form overrides: every field above has a per-block override with the same `"inherit"` sentinel as buttons (literal string, every field, including numerics — never `""` or omitted).
+
+#### 9.8c Custom fonts (any `<link>` tag — Google, Adobe, self-hosted)
+
+- Paste **any `<link>` tag** into theme settings — Google Fonts embed, Adobe Typekit, self-hosted CDN. Pro doesn't restrict to Google.
+- Name the family in the input below the link field (must match the `font-family` declared by the loaded stylesheet).
+- Assign as **primary** OR **accent** (two slots total per site).
+- Apply per-element: body / body-bold / h1 / h1-bold / h2 / h2-bold / h3 / h3-bold / buttons / forms — each independently via `select_custom_*_font` enums (`"inherit"` | `"primary"` | `"accent"`).
+- **`"inherit"` semantics (verified in `snippets/font_override_styles.liquid`):** Liquid only emits a `font-family` rule when the value is `"primary"` or `"accent"`. `"inherit"` emits NOTHING — meaning the element falls back to **Kajabi's standard heading/body font cascade** (the theme's normal font picker), NOT to one of the two custom-font slots. The custom-font system is purely **additive on top of Standard's font picker** — `"inherit"` literally means "no custom font here, let Kajabi's default font win." A Pro site can mix: H1 = primary custom font, H2/H3 = Kajabi's default heading font, body = accent custom font.
+- All 9 weights (100–900) when the loaded font ships them — Standard limits to normal/bold.
+- Per-element line-height, letter-spacing (incl. negative for condensed), font-size (desktop + mobile separately), bottom-margin.
+
+#### 9.8d Pro-only `custom_css_class` on every section
+
+- Field key: **`custom_css_class`** (text input, default `""`) — added by Pro to `sections/section.liquid`. Standard themes do NOT have it.
+- Liquid: `{% if section.settings.custom_css_class != blank %}{{ section.settings.custom_css_class }}{% endif %}` — rendered into the section's outer class list. Value is space-separated CSS class names (e.g. `"mm-dark-hero dark-hero-form"`), NOT a single class.
+- Combined with the theme-wide `customCss` slot (`TemplateDef.customCss`), this is the **canonical way to target a single section** with bespoke CSS without touching base theme files. Workflow: assign `custom_css_class: "hero-gradient-cta"` on the section → write `.hero-gradient-cta { ... }` in `themeSettings.customCss`.
+- Use cases: per-section gradients, scoped typography, hiding a single CTA on mobile, custom hover, animation triggers.
+- **Pro-only — silently dropped on Standard sites.**
+
+### 9.9 Pro-only block snippets
+
+These exist as `snippets/block_*.liquid` in Pro themes only. They are NOT yet wired into the React block library — exposing one requires the 6-step procedure in §9.12.
+
+| Snippet | Purpose | Key fields |
+|---|---|---|
+| `block_feature_icon` | Icon-led feature card | `feature_icon`, `feature_icon_color`, `feature_icon_size`, `image_width`, `image_border_radius`, `text` |
+| `block_code_tabs` | Multi-tab code/HTML viewer (up to 4) | `code_tabs`, `tabs_style`, `tabs_align`, per-tab slug/name/content |
+| `block_search_filter` | Faceted filter — see §9.6 | `use_dropdown_filters`, `use_dropdowns_horizontally`, `use_filter_1..5`, `filter_N_options`, `filter_N_title` |
+| `block_search_form` | Standalone keyword search input | search input fields |
+| `block_image_icon` | Image used as inline icon | image picker + sizing |
+| `block_test` | Internal Kajabi placeholder — **do not use** | n/a |
+
+### 9.10 Pro-only section snippets (column sliders)
+
+Layout switches set via section settings (not new block types):
+- `column_one_slider.liquid`, `column_two_slider.liquid`, `column_three_slider.liquid`
+
+### 9.11 Pro-only sections
+
+- `sections/footer_pro.liquid` — see §9.2.
+- `sections/cta_popup.liquid`, `sections/exit_pop.liquid`, `sections/two_step.liquid` — sitewide overlays enabled via theme settings, not per-page blocks.
+
+### 9.12 Pro-only section-level fields
+
+`sections/section.liquid` in Pro adds ~50 new fields:
+- **Animation**: `animation_type`, `animation_duration`, `animation_delay`, `animation_offset`.
+- **Slider** (§9.3): `enable_slider`, `slider_autoplay`, `slider_speed`, `slider_dots`, `slider_arrows`, `slider_infinite`, `slides_to_show_*`, `block_offset_before`, `block_offset_after`, plus arrow/dot positioning.
+- **Columns** (§9.4): `columns`, `column_widths`, `column_gap`, per-block `column`.
+- **Tabs** (§9.5): `use_as_tab`, `tab_slug`, `default_tab`.
+- **Advanced borders**: per-side `border_top_*`, `border_right_*`, `border_bottom_*`, `border_left_*`.
+- **Per-breakpoint columns**: `columns_desktop`, `columns_tablet`, `columns_mobile`.
+- **Background video**: `bg_video_loop`, `bg_video_muted`, `bg_video_autoplay`, `bg_video_overlay_color`, `bg_video_overlay_opacity`.
+- **Spacing precision**: per-breakpoint padding/margin.
+
+To add support: extend `kajabiFieldSchema.ts` SECTION schema (mark new fields `proOnly: true`), extend `Section`/`ContentSection` React props, gate in `serialize.ts` so they only emit when the export target is a `-pro` theme.
+
+### 9.13 Roadmap for exposing Pro blocks
+
+Add incrementally when an expert actually needs one:
+
+1. Create `src/blocks/components/<BlockName>.tsx` matching the Liquid output.
+2. Add `<block_type>` to `BlockType` union in `src/blocks/types.ts`.
+3. Add field defaults to `src/blocks/blockDefaults.ts`.
+4. Add serializer in `src/blocks/serialize.ts` mapping React props → Kajabi `block.settings.*`.
+5. Add field schema entry in `src/engines/kajabiFieldSchema.ts` with `proOnly: true`.
+6. Update `getTemplateCapabilities()` so Standard-themed sites reject the block.
+
+Don't expose all Pro blocks speculatively.

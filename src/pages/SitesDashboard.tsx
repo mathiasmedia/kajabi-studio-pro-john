@@ -1,5 +1,6 @@
 /**
- * Sites Dashboard — unified workspace with two tabs (Websites / Landing pages).
+ * Unified Workspace Dashboard — shows BOTH "Websites" (kind=site) and
+ * "Landing pages" (kind=landing_page) on the same page in two sections.
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -13,6 +14,7 @@ import {
   enabledPageCount,
   slugify,
   type Site,
+  type BaseThemeId,
 } from '@/lib/siteStore';
 import { SitePreview } from '@/components/SitePreview';
 import { Button } from '@/components/ui/button';
@@ -41,17 +43,26 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import {
-  MoreVertical, Plus, FileText, Layers, Copy, Check, LogOut,
-  Globe, Rocket, ChevronDown, Pin, PinOff,
+  MoreVertical,
+  Plus,
+  FileText,
+  Copy,
+  Check,
+  Globe,
+  Rocket,
+  ChevronDown,
+  Pin,
+  PinOff,
 } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { AppHeader } from '@/components/AppHeader';
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -75,10 +86,11 @@ function isTabKind(v: unknown): v is TabKind {
 
 export default function SitesDashboard() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
   const { toast } = useToast();
+  const { user, isAdmin } = useAuth();
   const [websites, setWebsites] = useState<Site[]>([]);
   const [landingPages, setLandingPages] = useState<Site[]>([]);
+  const [owners, setOwners] = useState<Record<string, string>>({});
   const [createMode, setCreateMode] = useState<CreateMode>(null);
   const [renameTarget, setRenameTarget] = useState<Site | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Site | null>(null);
@@ -93,62 +105,120 @@ export default function SitesDashboard() {
         setDefaultTabState(saved);
         setActiveTab(saved);
       }
-    } catch { /* ignore */ }
+    } catch {
+      // ignore
+    }
   }, [user?.id]);
 
   function saveDefaultTab(next: TabKind) {
     setDefaultTabState(next);
     if (!user?.id) return;
-    try { localStorage.setItem(DEFAULT_TAB_PREF_PREFIX + user.id, next); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(DEFAULT_TAB_PREF_PREFIX + user.id, next);
+    } catch {
+      // ignore
+    }
     toast({
       title: 'Default updated',
-      description: next === 'site'
-        ? 'Websites will open by default next time.'
-        : 'Landing pages will open by default next time.',
+      description:
+        next === 'site'
+          ? 'Websites will open by default next time.'
+          : 'Landing pages will open by default next time.',
     });
   }
 
-  async function handleSignOut() {
-    await signOut();
-    toast({ title: 'Signed out' });
-    navigate('/auth', { replace: true });
-  }
-
   async function refresh() {
-    const [s, lp] = await Promise.all([listSites('site'), listSites('landing_page')]);
-    setWebsites(s);
-    setLandingPages(lp);
+    const [sites, lps] = await Promise.all([
+      listSites('site'),
+      listSites('landing_page'),
+    ]);
+    setWebsites(sites);
+    setLandingPages(lps);
   }
 
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => {
+    refresh();
+  }, []);
 
   useEffect(() => {
     const channel = supabase
       .channel('workspace-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, () => { refresh(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'site_images' }, () => { refresh(); })
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sites' },
+        () => { refresh(); },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'site_images' },
+        () => { refresh(); },
+      )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  async function handleCreateSite(name: string) {
-    const site = await createSite({ name, brandName: name });
+  useEffect(() => {
+    const allItems = [...websites, ...landingPages];
+    if (!isAdmin || allItems.length === 0) {
+      setOwners({});
+      return;
+    }
+    const userIds = Array.from(new Set(allItems.map((s) => s.userId).filter(Boolean)));
+    if (userIds.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.functions.invoke('admin-list-site-owners', {
+        body: { userIds },
+      });
+      if (cancelled) return;
+      if (error) {
+        console.error('[dashboard] failed to load owner emails:', error);
+        return;
+      }
+      const map = (data?.owners ?? {}) as Record<string, string>;
+      setOwners(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, websites, landingPages]);
+
+  async function handleCreateSite(
+    name: string,
+    baseTheme: Extract<BaseThemeId, 'streamlined-home' | 'streamlined-home-pro'>,
+  ) {
+    const site = await createSite({ name, brandName: name, baseTheme });
     if (!site) return;
     await refresh();
     setCreateMode(null);
     navigate(`/sites/${site.id}`);
   }
 
-  async function handleCreateLandingPage(name: string, slug: string) {
-    const page = await createLandingPage({ name, brandName: name, slug });
+  async function handleCreateLandingPage(
+    name: string,
+    slug: string,
+    baseTheme: Extract<BaseThemeId, 'encore-page' | 'encore-page-pro'>,
+  ) {
+    const page = await createLandingPage({ name, brandName: name, slug, baseTheme });
     if (!page) return;
     await refresh();
     setCreateMode(null);
     navigate(`/sites/${page.id}`);
   }
 
-  async function handleDuplicate(id: string) { await duplicateSite(id); await refresh(); }
-  async function handleDelete(id: string) { await deleteSite(id); setDeleteTarget(null); await refresh(); }
+  async function handleDuplicate(id: string) {
+    await duplicateSite(id);
+    await refresh();
+  }
+
+  async function handleDelete(id: string) {
+    await deleteSite(id);
+    setDeleteTarget(null);
+    await refresh();
+  }
+
   async function handleRename(id: string, newName: string) {
     await updateSite(id, { name: newName, brandName: newName });
     setRenameTarget(null);
@@ -159,33 +229,14 @@ export default function SitesDashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Layers className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold leading-tight">Kajabi Studio Pro</h1>
-              <p className="text-xs text-muted-foreground">Build, save, and export Kajabi themes.</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {user?.email && (
-              <span className="hidden text-sm text-muted-foreground sm:inline" title={user.email}>
-                {user.email}
-              </span>
-            )}
-            <NewMenu
-              onNewSite={() => setCreateMode('site')}
-              onNewLandingPage={() => setCreateMode('landing_page')}
-            />
-            <Button variant="ghost" size="icon" onClick={handleSignOut} title="Sign out">
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        actions={
+          <NewMenu
+            onNewSite={() => setCreateMode('site')}
+            onNewLandingPage={() => setCreateMode('landing_page')}
+          />
+        }
+      />
 
       <main className="mx-auto max-w-6xl px-6 py-10">
         {isEmpty ? (
@@ -203,6 +254,7 @@ export default function SitesDashboard() {
               websiteCount={websites.length}
               landingPageCount={landingPages.length}
             />
+
             {activeTab === 'site' ? (
               <DashboardSection
                 icon={<Globe className="h-4 w-4" />}
@@ -213,17 +265,22 @@ export default function SitesDashboard() {
                 emptyCta="New website"
                 onEmptyCta={() => setCreateMode('site')}
               >
-                {websites.map((site) => (
-                  <ItemCard
-                    key={site.id}
-                    site={site}
-                    kindLabel={`${enabledPageCount(site)} ${enabledPageCount(site) === 1 ? 'page' : 'pages'}`}
-                    onOpen={() => navigate(`/sites/${site.id}`)}
-                    onRename={() => setRenameTarget(site)}
-                    onDuplicate={() => handleDuplicate(site.id)}
-                    onDelete={() => setDeleteTarget(site)}
-                  />
-                ))}
+                {websites.map((site) => {
+                  const isOwn = site.userId === user?.id;
+                  return (
+                    <ItemCard
+                      key={site.id}
+                      site={site}
+                      kindLabel={`${enabledPageCount(site)} ${enabledPageCount(site) === 1 ? 'page' : 'pages'}`}
+                      ownerEmail={isAdmin && !isOwn ? owners[site.userId] : undefined}
+                      canModify={isOwn}
+                      onOpen={() => navigate(`/sites/${site.id}`)}
+                      onRename={() => setRenameTarget(site)}
+                      onDuplicate={() => handleDuplicate(site.id)}
+                      onDelete={() => setDeleteTarget(site)}
+                    />
+                  );
+                })}
               </DashboardSection>
             ) : (
               <DashboardSection
@@ -235,18 +292,23 @@ export default function SitesDashboard() {
                 emptyCta="New landing page"
                 onEmptyCta={() => setCreateMode('landing_page')}
               >
-                {landingPages.map((page) => (
-                  <ItemCard
-                    key={page.id}
-                    site={page}
-                    kindLabel={page.slug ? `/${page.slug}` : 'no slug'}
-                    kindLabelMono
-                    onOpen={() => navigate(`/sites/${page.id}`)}
-                    onRename={() => setRenameTarget(page)}
-                    onDuplicate={() => handleDuplicate(page.id)}
-                    onDelete={() => setDeleteTarget(page)}
-                  />
-                ))}
+                {landingPages.map((page) => {
+                  const isOwn = page.userId === user?.id;
+                  return (
+                    <ItemCard
+                      key={page.id}
+                      site={page}
+                      kindLabel={page.slug ? `/${page.slug}` : 'no slug'}
+                      kindLabelMono
+                      ownerEmail={isAdmin && !isOwn ? owners[page.userId] : undefined}
+                      canModify={isOwn}
+                      onOpen={() => navigate(`/sites/${page.id}`)}
+                      onRename={() => setRenameTarget(page)}
+                      onDuplicate={() => handleDuplicate(page.id)}
+                      onDelete={() => setDeleteTarget(page)}
+                    />
+                  );
+                })}
               </DashboardSection>
             )}
           </div>
@@ -258,16 +320,19 @@ export default function SitesDashboard() {
         onOpenChange={(o) => !o && setCreateMode(null)}
         onCreate={handleCreateSite}
       />
+
       <CreateLandingPageDialog
         open={createMode === 'landing_page'}
         onOpenChange={(o) => !o && setCreateMode(null)}
         onCreate={handleCreateLandingPage}
       />
+
       <RenameDialog
         site={renameTarget}
         onOpenChange={(o) => !o && setRenameTarget(null)}
         onRename={handleRename}
       />
+
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -293,7 +358,13 @@ export default function SitesDashboard() {
   );
 }
 
-function NewMenu({ onNewSite, onNewLandingPage }: { onNewSite: () => void; onNewLandingPage: () => void }) {
+function NewMenu({
+  onNewSite,
+  onNewLandingPage,
+}: {
+  onNewSite: () => void;
+  onNewLandingPage: () => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -331,7 +402,12 @@ function NewMenu({ onNewSite, onNewLandingPage }: { onNewSite: () => void; onNew
 }
 
 function WorkspaceTabs({
-  value, onChange, defaultTab, onSetDefault, websiteCount, landingPageCount,
+  value,
+  onChange,
+  defaultTab,
+  onSetDefault,
+  websiteCount,
+  landingPageCount,
 }: {
   value: TabKind;
   onChange: (v: TabKind) => void;
@@ -365,10 +441,17 @@ function WorkspaceTabs({
             >
               {tab.icon}
               <span>{tab.label}</span>
-              <span className={'rounded-full px-2 py-0.5 text-xs ' + (active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
+              <span
+                className={
+                  'rounded-full px-2 py-0.5 text-xs ' +
+                  (active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')
+                }
+              >
                 {tab.count}
               </span>
-              {isDefaultTab && <Pin className="h-3 w-3 fill-current text-primary/70" aria-label="Default tab" />}
+              {isDefaultTab && (
+                <Pin className="h-3 w-3 fill-current text-primary/70" aria-label="Default tab" />
+              )}
             </button>
           );
         })}
@@ -385,15 +468,31 @@ function WorkspaceTabs({
         }
         title={isDefault ? 'This is your default tab' : 'Open this tab by default next time'}
       >
-        {isDefault ? (<><Pin className="h-3.5 w-3.5 fill-current" />Default</>)
-          : (<><PinOff className="h-3.5 w-3.5" />Set as default</>)}
+        {isDefault ? (
+          <>
+            <Pin className="h-3.5 w-3.5 fill-current" />
+            Default
+          </>
+        ) : (
+          <>
+            <PinOff className="h-3.5 w-3.5" />
+            Set as default
+          </>
+        )}
       </button>
     </div>
   );
 }
 
 function DashboardSection({
-  icon, title, subtitle, count, emptyLabel, emptyCta, onEmptyCta, children,
+  icon,
+  title,
+  subtitle,
+  count,
+  emptyLabel,
+  emptyCta,
+  onEmptyCta,
+  children,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -409,9 +508,13 @@ function DashboardSection({
       <div className="mb-5 flex items-end justify-between gap-4">
         <div>
           <h2 className="flex items-center gap-2 text-xl font-semibold">
-            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground">{icon}</span>
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground">
+              {icon}
+            </span>
             {title}
-            <span className="text-sm font-normal text-muted-foreground">({count})</span>
+            <span className="text-sm font-normal text-muted-foreground">
+              ({count})
+            </span>
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
         </div>
@@ -424,13 +527,21 @@ function DashboardSection({
           </Button>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">{children}</div>
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {children}
+        </div>
       )}
     </section>
   );
 }
 
-function FirstRunEmptyState({ onNewSite, onNewLandingPage }: { onNewSite: () => void; onNewLandingPage: () => void }) {
+function FirstRunEmptyState({
+  onNewSite,
+  onNewLandingPage,
+}: {
+  onNewSite: () => void;
+  onNewLandingPage: () => void;
+}) {
   return (
     <Card className="flex flex-col items-center justify-center gap-6 border-dashed py-16 text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
@@ -443,7 +554,10 @@ function FirstRunEmptyState({ onNewSite, onNewLandingPage }: { onNewSite: () => 
         </p>
       </div>
       <div className="grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
-        <button onClick={onNewSite} className="group rounded-lg border border-border bg-card p-5 text-left transition-all hover:border-primary hover:shadow-md">
+        <button
+          onClick={onNewSite}
+          className="group rounded-lg border border-border bg-card p-5 text-left transition-all hover:border-primary hover:shadow-md"
+        >
           <div className="flex items-center gap-2">
             <Globe className="h-5 w-5 text-primary" />
             <h3 className="font-semibold">Website</h3>
@@ -455,7 +569,10 @@ function FirstRunEmptyState({ onNewSite, onNewLandingPage }: { onNewSite: () => 
             <Plus className="h-3.5 w-3.5" /> New website
           </span>
         </button>
-        <button onClick={onNewLandingPage} className="group rounded-lg border border-border bg-card p-5 text-left transition-all hover:border-primary hover:shadow-md">
+        <button
+          onClick={onNewLandingPage}
+          className="group rounded-lg border border-border bg-card p-5 text-left transition-all hover:border-primary hover:shadow-md"
+        >
           <div className="flex items-center gap-2">
             <Rocket className="h-5 w-5 text-primary" />
             <h3 className="font-semibold">Landing page</h3>
@@ -473,11 +590,21 @@ function FirstRunEmptyState({ onNewSite, onNewLandingPage }: { onNewSite: () => 
 }
 
 function ItemCard({
-  site, kindLabel, kindLabelMono, onOpen, onRename, onDuplicate, onDelete,
+  site,
+  kindLabel,
+  kindLabelMono,
+  ownerEmail,
+  canModify,
+  onOpen,
+  onRename,
+  onDuplicate,
+  onDelete,
 }: {
   site: Site;
   kindLabel: string;
   kindLabelMono?: boolean;
+  ownerEmail?: string;
+  canModify: boolean;
   onOpen: () => void;
   onRename: () => void;
   onDuplicate: () => void;
@@ -485,18 +612,30 @@ function ItemCard({
 }) {
   return (
     <Card className="group overflow-hidden transition-shadow hover:shadow-md">
-      <button onClick={onOpen} className="block w-full cursor-pointer text-left">
+      <button
+        onClick={onOpen}
+        className="block w-full cursor-pointer text-left"
+      >
         <SitePreview site={site} />
       </button>
       <div className="flex items-start justify-between gap-2 p-4">
         <div className="min-w-0 flex-1">
-          <button onClick={onOpen} className="block w-full truncate text-left font-semibold hover:underline">
+          <button
+            onClick={onOpen}
+            className="block w-full truncate text-left font-semibold hover:underline"
+          >
             {site.name}
           </button>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {kindLabelMono ? <span className="font-mono">{kindLabel}</span> : kindLabel}
-            {' · Updated '}{timeAgo(site.updatedAt)}
+            {' · Updated '}
+            {timeAgo(site.updatedAt)}
           </p>
+          {ownerEmail && (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground" title={ownerEmail}>
+              Owner: <span className="font-medium text-foreground/80">{ownerEmail}</span>
+            </p>
+          )}
           <CopyIdButton id={site.id} />
         </div>
         <DropdownMenu>
@@ -507,12 +646,14 @@ function ItemCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={onOpen}>Open</DropdownMenuItem>
-            <DropdownMenuItem onClick={onRename}>Rename</DropdownMenuItem>
-            <DropdownMenuItem onClick={onDuplicate}>Duplicate</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
-              Delete
-            </DropdownMenuItem>
+            {canModify && <DropdownMenuItem onClick={onRename}>Rename</DropdownMenuItem>}
+            {canModify && <DropdownMenuItem onClick={onDuplicate}>Duplicate</DropdownMenuItem>}
+            {canModify && <DropdownMenuSeparator />}
+            {canModify && (
+              <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+                Delete
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -550,10 +691,29 @@ function CopyIdButton({ id }: { id: string }) {
 }
 
 function CreateSiteDialog({
-  open, onOpenChange, onCreate,
-}: { open: boolean; onOpenChange: (open: boolean) => void; onCreate: (name: string) => void }) {
+  open,
+  onOpenChange,
+  onCreate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreate: (
+    name: string,
+    baseTheme: Extract<BaseThemeId, 'streamlined-home' | 'streamlined-home-pro'>,
+  ) => void;
+}) {
   const [name, setName] = useState('');
-  useEffect(() => { if (open) setName(''); }, [open]);
+  const [tier, setTier] = useState<'standard' | 'pro'>('standard');
+
+  useEffect(() => {
+    if (open) {
+      setName('');
+      setTier('standard');
+    }
+  }, [open]);
+
+  const baseTheme = tier === 'pro' ? 'streamlined-home-pro' : 'streamlined-home';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -561,7 +721,9 @@ function CreateSiteDialog({
           <DialogTitle className="flex items-center gap-2">
             <Globe className="h-5 w-5 text-primary" /> Create a new website
           </DialogTitle>
-          <DialogDescription>Multi-page Kajabi site. You can add or remove pages later.</DialogDescription>
+          <DialogDescription>
+            Multi-page Kajabi site. You can add or remove pages later.
+          </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4 py-2">
           <div className="flex flex-col gap-2">
@@ -572,13 +734,20 @@ function CreateSiteDialog({
               placeholder="e.g. Acme Co"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) onCreate(name.trim()); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && name.trim()) onCreate(name.trim(), baseTheme);
+              }}
             />
           </div>
+          <TierToggle value={tier} onChange={setTier} kind="site" />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => onCreate(name.trim() || 'Untitled site')}>Create website</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={() => onCreate(name.trim() || 'Untitled site', baseTheme)}>
+            Create website
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -586,16 +755,39 @@ function CreateSiteDialog({
 }
 
 function CreateLandingPageDialog({
-  open, onOpenChange, onCreate,
-}: { open: boolean; onOpenChange: (open: boolean) => void; onCreate: (name: string, slug: string) => void }) {
+  open,
+  onOpenChange,
+  onCreate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreate: (
+    name: string,
+    slug: string,
+    baseTheme: Extract<BaseThemeId, 'encore-page' | 'encore-page-pro'>,
+  ) => void;
+}) {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [slugDirty, setSlugDirty] = useState(false);
+  const [tier, setTier] = useState<'standard' | 'pro'>('standard');
+
   useEffect(() => {
-    if (open) { setName(''); setSlug(''); setSlugDirty(false); }
+    if (open) {
+      setName('');
+      setSlug('');
+      setSlugDirty(false);
+      setTier('standard');
+    }
   }, [open]);
-  useEffect(() => { if (!slugDirty) setSlug(slugify(name)); }, [name, slugDirty]);
+
+  useEffect(() => {
+    if (!slugDirty) setSlug(slugify(name));
+  }, [name, slugDirty]);
+
   const canSubmit = name.trim().length > 0;
+  const baseTheme = tier === 'pro' ? 'encore-page-pro' : 'encore-page';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -626,16 +818,27 @@ function CreateLandingPageDialog({
                 id="lp-slug"
                 placeholder="spring-launch"
                 value={slug}
-                onChange={(e) => { setSlug(slugify(e.target.value)); setSlugDirty(true); }}
-                onKeyDown={(e) => { if (e.key === 'Enter' && canSubmit) onCreate(name.trim(), slug); }}
+                onChange={(e) => {
+                  setSlug(slugify(e.target.value));
+                  setSlugDirty(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && canSubmit) onCreate(name.trim(), slug, baseTheme);
+                }}
                 className="border-0 px-1 shadow-none focus-visible:ring-0"
               />
             </div>
           </div>
+          <TierToggle value={tier} onChange={setTier} kind="landing_page" />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={!canSubmit} onClick={() => canSubmit && onCreate(name.trim(), slug)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!canSubmit}
+            onClick={() => canSubmit && onCreate(name.trim(), slug, baseTheme)}
+          >
             Create landing page
           </Button>
         </DialogFooter>
@@ -644,12 +847,89 @@ function CreateLandingPageDialog({
   );
 }
 
+function TierToggle({
+  value,
+  onChange,
+  kind,
+}: {
+  value: 'standard' | 'pro';
+  onChange: (v: 'standard' | 'pro') => void;
+  kind: 'site' | 'landing_page';
+}) {
+  const proHint =
+    kind === 'site'
+      ? 'Sliders, animations, column layouts, Pro footer, plus extra block types.'
+      : 'Sliders, animations, advanced section controls, plus extra block types.';
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>Base template</Label>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => onChange('standard')}
+          className={
+            'rounded-md border p-3 text-left transition-colors ' +
+            (value === 'standard'
+              ? 'border-primary bg-primary/5 ring-1 ring-primary'
+              : 'border-border bg-background hover:border-foreground/30')
+          }
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Standard</span>
+            {value === 'standard' && (
+              <Check className="h-3.5 w-3.5 text-primary" aria-hidden />
+            )}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Battle-tested base template. Recommended for most sites.
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('pro')}
+          className={
+            'rounded-md border p-3 text-left transition-colors ' +
+            (value === 'pro'
+              ? 'border-primary bg-primary/5 ring-1 ring-primary'
+              : 'border-border bg-background hover:border-foreground/30')
+          }
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">
+              Pro{' '}
+              <span className="ml-0.5 rounded-sm bg-primary/15 px-1 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wide text-primary">
+                New
+              </span>
+            </span>
+            {value === 'pro' && <Check className="h-3.5 w-3.5 text-primary" aria-hidden />}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{proHint}</p>
+        </button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        This choice is set once and can't be changed later.
+      </p>
+    </div>
+  );
+}
+
 function RenameDialog({
-  site, onOpenChange, onRename,
-}: { site: Site | null; onOpenChange: (open: boolean) => void; onRename: (id: string, name: string) => void }) {
+  site,
+  onOpenChange,
+  onRename,
+}: {
+  site: Site | null;
+  onOpenChange: (open: boolean) => void;
+  onRename: (id: string, name: string) => void;
+}) {
   const [name, setName] = useState('');
-  useEffect(() => { if (site) setName(site.name); }, [site]);
+
+  useEffect(() => {
+    if (site) setName(site.name);
+  }, [site]);
+
   const label = site?.kind === 'landing_page' ? 'landing page' : 'website';
+
   return (
     <Dialog open={!!site} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -661,11 +941,15 @@ function RenameDialog({
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && site && name.trim()) onRename(site.id, name.trim()); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && site && name.trim()) onRename(site.id, name.trim());
+            }}
           />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button onClick={() => site && name.trim() && onRename(site.id, name.trim())}>Save</Button>
         </DialogFooter>
       </DialogContent>

@@ -11,6 +11,7 @@ import { exportFromTree, triggerDownload } from '@/blocks';
 import { supabase } from '@/integrations/supabase/client';
 import {
   getSite,
+  resolveBaseTheme,
   updateSite,
   type PageKey,
   type Site,
@@ -26,7 +27,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Download, Pencil } from 'lucide-react';
+import { ArrowLeft, Download, Link2, Pencil } from 'lucide-react';
+import { toast } from 'sonner';
+import { persistExportZip, formatRelativeTime } from '@/lib/exportPersistence';
 
 const SYSTEM_PAGE_LABELS: Record<string, string> = {
   index: 'Home',
@@ -83,9 +86,6 @@ export default function SiteEditor() {
     };
   }, [siteId, navigate]);
 
-  // Realtime: when this site's row OR its site_images change (e.g. the agent
-  // saves via update-site-design or generates an image), refetch so the
-  // preview updates without the user reloading.
   useEffect(() => {
     if (!siteId) return;
     const channel = supabase
@@ -115,8 +115,6 @@ export default function SiteEditor() {
   const slotMap = useMemo(() => imagesBySlot(images), [images]);
   const pageKeys = site?.design?.pageKeys ?? [];
 
-  // Preview-time font loading: inject a Google Fonts <link> AND a <style>
-  // rule that actually applies the families to the rendered preview tree.
   useEffect(() => {
     const fonts = site?.design?.fonts;
     if (!fonts) return;
@@ -161,14 +159,12 @@ export default function SiteEditor() {
   }, [site?.design?.fonts, site?.id]);
 
   useEffect(() => {
-    const css = site?.design?.customCss?.trim();
-    if (!css) return;
-
+    const css = site?.design?.customCss;
+    if (!css || typeof css !== 'string' || css.trim() === '') return;
     const style = document.createElement('style');
     style.textContent = css;
     if (site?.id) style.dataset.previewCustomCss = site.id;
     document.head.appendChild(style);
-
     return () => {
       style.remove();
     };
@@ -215,15 +211,33 @@ export default function SiteEditor() {
         global,
         themeSettings,
         customCss,
-        baseTheme: site.kind === 'landing_page' ? 'encore-page' : 'streamlined-home',
+        baseTheme: resolveBaseTheme(site),
       });
       const safe = site.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'site';
       triggerDownload(blob, `${safe}.zip`);
+
+      persistExportZip(site, blob).then((res) => {
+        if (res.ok) {
+          toast.success('Latest build link updated');
+        } else {
+          toast.error('Couldn\u2019t save build to cloud', { description: res.error });
+        }
+      });
     } catch (err) {
       console.error(err);
-      alert(`Export failed: ${(err as Error).message}`);
+      toast.error(`Export failed: ${(err as Error).message}`);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function copyLatestLink() {
+    if (!site?.latestExportUrl) return;
+    try {
+      await navigator.clipboard.writeText(site.latestExportUrl);
+      toast.success('Download link copied');
+    } catch (err) {
+      toast.error('Couldn\u2019t copy link', { description: (err as Error).message });
     }
   }
 
@@ -240,15 +254,16 @@ export default function SiteEditor() {
     : null;
 
   const isLandingPage = site.kind === 'landing_page';
+  const backLabel = isLandingPage ? 'All landing pages' : 'All sites';
+  const backHref = isLandingPage ? '/landing-pages' : '/';
   const exportLabel = isLandingPage ? 'Export landing page' : 'Export theme';
 
   return (
     <div className="min-h-screen bg-muted/20">
-      {/* Sticky editor bar */}
       <div className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-3 min-w-0">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
-            <ArrowLeft className="h-4 w-4" /> All sites
+          <Button variant="ghost" size="sm" onClick={() => navigate(backHref)}>
+            <ArrowLeft className="h-4 w-4" /> {backLabel}
           </Button>
           <div className="h-6 w-px bg-border" />
           {editingName ? (
@@ -288,7 +303,6 @@ export default function SiteEditor() {
           )}
         </div>
 
-        {/* Page selector — hidden for landing pages (single page only). */}
         {!isLandingPage && (
           <Select value={activePage} onValueChange={(v) => setActivePage(v as PageKey)}>
             <SelectTrigger className="h-9 w-56">
@@ -304,13 +318,32 @@ export default function SiteEditor() {
           </Select>
         )}
 
-        <Button onClick={handleExport} disabled={busy || !site.design} size="sm">
-          <Download className="h-4 w-4" />
-          {busy ? 'Building zip…' : exportLabel}
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            {site.latestExportUrl && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={copyLatestLink}
+                title={`Copy stable download link\n${site.latestExportUrl}`}
+              >
+                <Link2 className="h-4 w-4" />
+                Copy link
+              </Button>
+            )}
+            <Button onClick={handleExport} disabled={busy || !site.design} size="sm">
+              <Download className="h-4 w-4" />
+              {busy ? 'Building zip…' : exportLabel}
+            </Button>
+          </div>
+          {site.latestExportAt && (
+            <span className="text-[11px] text-muted-foreground">
+              Latest build: {formatRelativeTime(site.latestExportAt)}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Preview */}
       <div className="preview-root">
         {PreviewPage ?? (
           <div className="flex min-h-[60vh] items-center justify-center text-muted-foreground">
@@ -322,10 +355,6 @@ export default function SiteEditor() {
   );
 }
 
-/**
- * Inline slug editor for landing pages. Stays uncontrolled so the user can
- * type freely; commits onBlur or Enter (slugified server-side too).
- */
 function SlugField({
   initial,
   onCommit,
