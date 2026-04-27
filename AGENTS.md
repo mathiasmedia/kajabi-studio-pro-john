@@ -334,6 +334,22 @@ If the expert says "design the course page" or "build out the page template", th
 
 **Pre-flight check before saving:** if the page key being edited is `page`, the `sections` array must have length 2 (header + footer). If you've added anything else, remove it before calling `update-site-design`.
 
+### 4.12 NEVER set `fullWidth: true` on a section unless explicitly asked
+
+Kajabi's "Make section full width" toggle (`fullWidth: true` in our props → `full_width: 'true'` in `settings_data.json`) breaks the section's inner content out of the standard 1170px container so it spans the entire viewport edge-to-edge. This is **almost always wrong** for content sections (hero, features, CTAs, testimonials, copy blocks): on wide monitors the headline and paragraph stretch hundreds of characters wide and become unreadable; the layout looks unprofessional and amateur.
+
+**The default is constrained.** Every `ContentSection` in a template MUST omit `fullWidth` (or set it to `false`) unless the expert **explicitly** asks for "full width", "edge to edge", "no margins", "full bleed", or describes a layout that obviously requires it (e.g. "an image gallery that touches both screen edges"). Phrases like "make it bigger", "make the hero feel premium", "more impactful", "more spacious" do **not** mean full width — they usually mean larger padding, bigger type, or a stronger background — never a content breakout.
+
+This applies to:
+- New templates being built from a prompt.
+- Redesigns of existing sections.
+- Any "make it more premium / more impactful / cleaner" pass.
+- Sections with background images (the image already covers the viewport via `bg_image` + `background-size: cover`; `fullWidth` only affects the inner content column, not the image).
+
+**Common confusion:** authors often think `fullWidth` controls whether the **background image** covers the full viewport. It does not. Background images already cover the full section width by default (per §4.8). `fullWidth` controls whether the **text/blocks inside** the section break out of the 1170px container — and stretching headlines + paragraphs to 2000px+ wide is what makes the page look broken.
+
+**Pre-flight check before saving any template or page:** scan every `content` section's props. If `fullWidth: true` is set and the expert never asked for it, remove it. The Mastermind landing page hero is a real example of this bug — the hero text was set to full width and the headline spans the entire screen, making the layout feel unbalanced and unfinished.
+
 ---
 
 ## 5. How to talk to the expert
@@ -426,13 +442,17 @@ Pull these files verbatim from `@kajabi-studio-max` into the thin client. They a
 - `src/lib/siteDesign/types.ts`
 - `src/lib/siteDesign/render.tsx`
 - `src/lib/siteDesign/blank.ts`
+- `src/lib/siteDesign/landingPageBlank.ts`
 - `src/lib/siteStore.ts`
 - `src/lib/imageStore.ts`
 
 **Editor shell + preview:**
 - `src/pages/SiteEditor.tsx`
 - `src/pages/SitesDashboard.tsx`
+- `src/pages/LandingPagesDashboard.tsx`
 - `src/components/SitePreview.tsx`
+- `src/components/AppHeader.tsx`
+- `src/App.tsx` (routes — `/sites`, `/landing-pages`, `/sites/:id`)
 
 **Type contracts (read-only at the type level but ship the file):**
 - `src/types/assets.ts`
@@ -463,3 +483,37 @@ When done, tell the operator exactly which files changed and which were already 
 ### 8.5 What this fixes
 
 This sync is what propagates master-side fixes for: export pipeline bugs (e.g. external background-image URL mangling), preview rendering bugs (font loading, column gutters, heading-descendant fonts), block component bugs, and editor UI improvements. If the expert reports "this looked fine in the preview but broke after export" or "the preview doesn't match Kajabi", the first thing to try after reading the relevant code is asking the operator if a master sync is overdue.
+
+### 8.6 Landing pages (added 2026-04)
+
+The `sites` table has `kind` (`'site'` | `'landing_page'`) and `slug` columns. After a master sync, the thin client gains a **Landing pages** tab (`/landing-pages`) alongside **Sites**. `listSites(kind)` filters by kind so the two dashboards stay separate. Landing pages are single-page sites (`index` only) with a logo-only header and copyright-only footer; the slug becomes the public URL path on Kajabi.
+
+**Base theme:** sites with `kind === 'landing_page'` export against Kajabi's **`encore-page`** base theme — a dedicated single-template landing-page theme that ships only `templates/index.liquid` (no `layouts/`, no `about`/`blog`/`library` etc.). Sites with `kind === 'site'` continue to export against `streamlined-home`. The branch happens in `SiteEditor.tsx` (`baseTheme: site.kind === 'landing_page' ? 'encore-page' : 'streamlined-home'`) and is plumbed through `exportFromTree` → `exportThemeZip` → `loadBaseThemeZip(baseTheme)`. Both base zips live in `public/base-theme/`. The block/section schema is identical between the two themes (same `block_text`, `block_cta`, `block_image`, `block_feature` snippets), so no per-block code changes are needed — only the underlying zip differs.
+
+If a thin client hasn't been synced yet, RLS still scopes `sites` by user, so other users' landing pages won't leak in — but if the operator creates a landing page on behalf of an unsynced expert, that landing page will appear mixed into the expert's sites list until the sync lands. Sync sooner rather than later for any expert who will use landing pages.
+
+The `get-site-design` and `update-site-design` edge functions return/accept `kind` and `slug`. Thin clients can read them after sync; they cannot mutate `kind` (set at creation), but they can update `slug` by passing it in the `update-site-design` body.
+
+### 8.7 Targeted "sync only landing pages" (faster than full §8.1)
+
+A full §8.1 sync takes a while. When the operator only needs to pick up the landing-pages feature on a thin client, they can paste this exact phrase instead:
+
+> **"sync landing pages from master"**
+
+When you (the thin-client AI) see that phrase, sync ONLY these files from `kajabi-studio-max` (project ID `4fd872bc-5636-4a8a-bde9-a334a0656f59`), in parallel:
+
+- `src/lib/siteStore.ts` — adds `kind`, `slug`, `listSites(kind)`, `createLandingPage`, `slugify`
+- `src/lib/siteDesign/landingPageBlank.ts` — **NEW** file (single-page baseline)
+- `src/pages/SitesDashboard.tsx` — **unified workspace dashboard** with two tabs (Websites / Landing pages), per-user "Set as default" pin (localStorage-scoped by user id, UI-pref only — no site data), and a single "New ▾" button with two options
+- `src/pages/LandingPagesDashboard.tsx` — **NEW** file (kept for back-compat — no longer routed; the unified dashboard at `/` replaces it)
+- `src/pages/SiteEditor.tsx` — slug field, hides page selector for landing pages, branches `baseTheme` on `site.kind`
+- `src/components/AppHeader.tsx` — nav tabs removed (everything's on one page now); brand mark routes to `/`
+- `src/App.tsx` — `/landing-pages` is now a redirect to `/`
+- `src/blocks/export.ts` — adds `baseTheme` to `ExportFromTreeOptions`
+- `src/engines/exportEngine.ts` — adds `ExportThemeZipOptions.baseTheme`, branches `loadBaseThemeZip` on theme
+- `src/engines/baseThemeValidator.ts` — multi-theme cache + `BaseThemeName` type
+- `public/base-theme/encore-page.zip` — **NEW** asset (Kajabi encore-page base theme)
+
+Skip everything else in §8.1. Skip type-checking unrelated areas. After writing the files, tell the operator: "Landing pages synced — 11 files updated. After a hard refresh, the workspace at `/` shows two tabs (Websites / Landing pages), a single 'New ▾' button to create either, and a 'Set as default' pin so each user can choose which tab opens first."
+
+If `tsc --noEmit` flags an error in a file you didn't sync, that means the engine is also out of date and the operator should run a full **"sync from master"** afterwards. Don't try to patch the error locally.
