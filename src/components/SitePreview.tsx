@@ -1,17 +1,69 @@
 /**
  * SitePreview — renders the home page from a site's `design` JSON, scaled
  * to a thumbnail. Sites without a design fall back to a friendly empty card.
+ *
+ * Parity with the editor preview:
+ *  - The thumbnail tree is wrapped in `.preview-root` so authors' preview-
+ *    scoped customCss selectors match here too.
+ *  - The site's customCss is injected into the inner stage as a scoped
+ *    <style> tag (instance-scoped via a unique id so multiple thumbnails on
+ *    the same dashboard don't collide).
+ *  - Site fonts are injected per-instance the same way SiteEditor does.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Site } from '@/lib/siteStore';
 import { renderDesign } from '@/lib/siteDesign/render';
+import { resolvePreviewFonts } from '@/lib/siteDesign/resolvePreviewFonts';
 
 const RENDER_WIDTH = 1280;
 const RENDER_HEIGHT = 800;
+const AT_RULE_BLOCK_RE = /@(media|supports|container|layer)[^{]+\{[\s\S]*?\}\s*\}/g;
+const TOP_LEVEL_RULE_RE = /(^|\})\s*([^@{}][^{}]*)\{/g;
+
+function scopeSelectorList(selectorList: string, scope: string) {
+  return selectorList
+    .split(',')
+    .map((selector) => {
+      const trimmed = selector.trim();
+      if (!trimmed) return trimmed;
+      if (trimmed.startsWith(scope)) return trimmed;
+      if (/^(:root|html|body)\b/.test(trimmed)) {
+        return trimmed.replace(/^(:root|html|body)\b/, scope);
+      }
+      return `${scope} ${trimmed}`;
+    })
+    .join(', ');
+}
+
+function scopeCss(css: string, scope: string) {
+  const scopeTopLevelRules = (fragment: string) =>
+    fragment.replace(TOP_LEVEL_RULE_RE, (_match, brace, selectorList) => {
+      return `${brace} ${scopeSelectorList(selectorList, scope)} {`;
+    });
+
+  return scopeTopLevelRules(
+    css.replace(AT_RULE_BLOCK_RE, (block) => {
+      const openIndex = block.indexOf('{');
+      const closeIndex = block.lastIndexOf('}');
+      if (openIndex === -1 || closeIndex === -1 || closeIndex <= openIndex) return block;
+
+      const header = block.slice(0, openIndex + 1);
+      const inner = block.slice(openIndex + 1, closeIndex);
+      const footer = block.slice(closeIndex);
+
+      return `${header}${scopeTopLevelRules(inner)}${footer}`;
+    }),
+  );
+}
 
 export function SitePreview({ site }: { site: Site }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0.25);
+  const reactId = useId();
+  const scopeClass = useMemo(
+    () => `preview-thumb-${reactId.replace(/[^a-zA-Z0-9]/g, '')}`,
+    [reactId],
+  );
 
   useEffect(() => {
     const el = containerRef.current;
@@ -26,10 +78,72 @@ export function SitePreview({ site }: { site: Site }) {
     return () => ro.disconnect();
   }, []);
 
+  const scopedCss = useMemo(() => {
+    const css = site.design?.customCss;
+    if (!css || typeof css !== 'string' || css.trim() === '') return '';
+    return scopeCss(css, `.${scopeClass}`);
+  }, [site.design?.customCss, scopeClass]);
+
+  useEffect(() => {
+    const resolved = resolvePreviewFonts(site.design ?? null);
+    if (!resolved) return;
+    const { headingFamily, bodyFamily, googleFamilies, rawLinkTags } = resolved;
+    const cleanupNodes: HTMLElement[] = [];
+
+    if (googleFamilies.length > 0) {
+      const families = googleFamilies.map((k) =>
+        `${k.replace(/\s+/g, '+')}:wght@300;400;500;600;700;800`,
+      );
+      const href = `https://fonts.googleapis.com/css2?${families
+        .map((f) => `family=${f}`)
+        .join('&')}&display=swap`;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      link.dataset.thumbFonts = scopeClass;
+      document.head.appendChild(link);
+      cleanupNodes.push(link);
+    }
+
+    rawLinkTags.forEach((href) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      link.dataset.thumbFonts = scopeClass;
+      document.head.appendChild(link);
+      cleanupNodes.push(link);
+    });
+
+    const headingStack = headingFamily ? `'${headingFamily}', Georgia, serif` : null;
+    const bodyStack = bodyFamily
+      ? `'${bodyFamily}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
+      : null;
+    if (headingStack || bodyStack || resolved.overrideCss) {
+      const style = document.createElement('style');
+      style.dataset.thumbFonts = scopeClass;
+      const scope = `.${scopeClass}`;
+      const scopedOverrides = resolved.overrideCss ? scopeCss(resolved.overrideCss, scope) : '';
+      style.textContent = [
+        bodyStack ? `${scope}, ${scope} * { font-family: ${bodyStack}; }` : '',
+        headingStack
+          ? `${scope} :is(h1,h2,h3,h4,h5,h6), ${scope} :is(h1,h2,h3,h4,h5,h6) * { font-family: ${headingStack}; }`
+          : '',
+        scopedOverrides,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      document.head.appendChild(style);
+      cleanupNodes.push(style);
+    }
+
+    return () => {
+      cleanupNodes.forEach((n) => n.remove());
+    };
+  }, [site.design, scopeClass]);
+
   let content: React.ReactNode = null;
   try {
     if (site.design) {
-      // Image slot resolution at thumbnail scale isn't worth a DB round-trip.
       content = renderDesign(site.design, 'index', {});
     }
   } catch (err) {
@@ -45,6 +159,7 @@ export function SitePreview({ site }: { site: Site }) {
       {content ? (
         <div
           aria-hidden
+          className={`preview-root ${scopeClass}`}
           style={{
             position: 'absolute',
             top: 0,
@@ -57,6 +172,7 @@ export function SitePreview({ site }: { site: Site }) {
             overflow: 'hidden',
           }}
         >
+          {scopedCss && <style>{scopedCss}</style>}
           {content}
         </div>
       ) : (
