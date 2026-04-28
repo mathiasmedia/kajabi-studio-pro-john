@@ -1,17 +1,11 @@
 /**
  * <Copyright> block — Kajabi `copyright` type (footer only).
- *
- * Real Kajabi schema (from footer_block_copyright.liquid):
- *   - copyright (string) — that's it.
- *
- * Universal chrome flows in via ChromeProps so copyright can be carded if needed.
  */
 import type { BlockComponent } from '../types';
 import { getBlockChromeStyle, type ChromeProps } from '../blockChrome';
 
 export interface CopyrightProps extends ChromeProps {
   text: string;
-  /** Preview-only alignment */
   align?: 'left' | 'center' | 'right';
 }
 

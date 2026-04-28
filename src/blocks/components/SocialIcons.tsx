@@ -1,26 +1,9 @@
 /**
  * <SocialIcons> block — Kajabi `social_icons` type.
- *
- * Real Kajabi schema (snippets/element_social_icons.liquid + block_social_icons.liquid):
- *   Per-platform URL fields (block-level):
- *     - social_icon_link_facebook, _twitter, _instagram, _youtube, _linkedin,
- *       _tiktok, _pinterest, _vimeo, _github, _medium, _spotify, _soundcloud, ...
- *   Appearance:
- *     - social_icon_size (small | medium | large)
- *     - social_icons_background_color  (per-icon BUTTON background)
- *     - social_icon_background_style (none | square | circle)
- *     - new_tab (true | false)
- *
- * NOTE: This block intentionally does NOT extend ChromeProps. The
- * universal `background_color` semantic ("paint the block as a card")
- * collides with Kajabi's per-icon button background field
- * `social_icons_background_color`, and the latter is the meaningful one
- * for this block. Stick with `backgroundColor` = icon-button bg.
  */
 import type { BlockComponent } from '../types';
 
 export interface SocialIconsProps {
-  // Per-platform URLs — exported as social_icon_link_<platform>
   facebook?: string;
   twitter?: string;
   instagram?: string;
@@ -33,14 +16,10 @@ export interface SocialIconsProps {
   medium?: string;
   spotify?: string;
   soundcloud?: string;
-  /** Block-level appearance */
   size?: 'small' | 'medium' | 'large';
-  /** Per-icon BUTTON background — Kajabi `social_icons_background_color`. */
   backgroundColor?: string;
   backgroundStyle?: 'none' | 'square' | 'circle';
-  /** Open links in new tab — Kajabi `new_tab` */
   newTab?: boolean;
-  /** Preview-only alignment */
   align?: 'left' | 'center' | 'right';
   iconColor?: string;
 }

@@ -14,7 +14,10 @@ import { getBlockChromeStyle, serializeChromeProps, type ChromeProps } from '../
 export interface CallToActionProps extends ChromeProps {
   buttonText: string;
   buttonUrl: string;
-  buttonStyle?: 'solid' | 'outline';
+  /** 'text' = Pro link-style (no bg/border). Color follows buttonType per Pro. */
+  buttonStyle?: 'solid' | 'outline' | 'text';
+  /** Pro dark/light pair selector — picks which color slot to use. */
+  buttonType?: 'dark' | 'light';
   buttonSize?: 'small' | 'medium' | 'large';
   buttonWidth?: 'auto' | 'full';
   buttonTextColor?: string;
@@ -28,23 +31,40 @@ export interface CallToActionProps extends ChromeProps {
 
 export const CallToAction: BlockComponent<CallToActionProps> = (props) => {
   const align = props.align ?? 'center';
-  const isOutline = props.buttonStyle === 'outline';
+  const style = props.buttonStyle ?? 'solid';
+  const isOutline = style === 'outline';
+  const isText = style === 'text';
+  const btnType = props.buttonType ?? 'dark';
+  const textLinkColor = btnType === 'light'
+    ? (props.buttonTextColor || props.buttonBackgroundColor || 'currentColor')
+    : (props.buttonBackgroundColor || props.buttonTextColor || 'currentColor');
   const chrome = getBlockChromeStyle(props);
   return (
     <div style={{ textAlign: align, padding: '12px 0', ...chrome }}>
       <a
+        className={`btn btn--${style} btn--${props.buttonSize ?? 'medium'}`}
         href={props.buttonUrl}
         target={props.newTab ? '_blank' : undefined}
         rel={props.newTab ? 'noopener noreferrer' : undefined}
-        style={{
+        style={isText ? {
           display: 'inline-block',
-          padding: '12px 24px',
-          color: props.buttonTextColor || (isOutline ? '#3B82F6' : '#fff'),
+          color: textLinkColor,
+          backgroundColor: 'transparent',
+          border: 'none',
+          padding: 0,
+          textDecoration: 'none',
+          width: props.buttonWidth === 'full' ? '100%' : 'auto',
+        } : {
+          display: 'inline-block',
+          color: props.buttonTextColor || (isOutline ? 'currentColor' : '#fff'),
           backgroundColor: isOutline ? 'transparent' : (props.buttonBackgroundColor || '#3B82F6'),
-          border: isOutline ? '2px solid #3B82F6' : 'none',
+          border: isOutline
+            ? `1px solid ${props.buttonBackgroundColor || props.buttonTextColor || 'currentColor'}`
+            : 'none',
           borderRadius: props.buttonBorderRadius ? `${props.buttonBorderRadius}px` : 4,
           textDecoration: 'none',
           width: props.buttonWidth === 'full' ? '100%' : 'auto',
+          padding: undefined,
         }}
       >
         {props.buttonText}
@@ -63,6 +83,7 @@ CallToAction.serialize = (p) => withBlockDefaults({
   btn_text: p.buttonText ?? '',
   btn_action: p.buttonUrl ?? '',
   btn_style: p.buttonStyle ?? 'solid',
+  btn_type: p.buttonType ?? 'dark',
   btn_size: p.buttonSize ?? 'medium',
   btn_width: p.buttonWidth ?? 'auto',
   btn_text_color: p.buttonTextColor ?? '',

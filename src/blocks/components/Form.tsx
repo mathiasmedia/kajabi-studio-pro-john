@@ -1,24 +1,13 @@
 /**
  * <Form> block — Kajabi `form` type.
- *
- * Renders a placeholder for an opt-in form. The actual form is selected by
- * the user inside the Kajabi editor.
- *
- * Real Kajabi schema (block_form.liquid):
- *   form, heading-via-text, btn_background_color, btn_text_color, width
- *
- * Universal chrome flows in via ChromeProps and overrides the dashed
- * placeholder styling when the planner sets background_color/padding/etc.
  */
 import type { BlockComponent } from '../types';
 import { withBlockDefaults } from '../blockDefaults';
 import { getBlockChromeStyle, serializeChromeProps, type ChromeProps } from '../blockChrome';
 
 export interface FormProps extends ChromeProps {
-  /** Kajabi opt-in form ID. Leave blank — user assigns in editor. */
   formId?: string;
   heading?: string;
-  /** HTML intro text */
   text?: string;
   buttonBackgroundColor?: string;
   buttonTextColor?: string;
@@ -27,8 +16,6 @@ export interface FormProps extends ChromeProps {
 
 export const Form: BlockComponent<FormProps> = (props) => {
   const chrome = getBlockChromeStyle(props);
-  // Built-in placeholder styling (dashed border + slate bg) only applies when
-  // the planner hasn't supplied chrome — otherwise the chrome wins.
   const baseStyle = chrome ?? {
     border: '2px dashed #cbd5e1',
     borderRadius: 8,
@@ -55,6 +42,7 @@ export const Form: BlockComponent<FormProps> = (props) => {
         />
         <button
           type="button"
+          className="btn btn--solid btn--medium"
           disabled
           style={{
             padding: '10px 16px',
@@ -70,9 +58,7 @@ export const Form: BlockComponent<FormProps> = (props) => {
           Subscribe
         </button>
       </div>
-      <div style={{
-        marginTop: 16, fontSize: 11, fontFamily: 'monospace', color: '#94a3b8',
-      }}>
+      <div style={{ marginTop: 16, fontSize: 11, fontFamily: 'monospace', color: '#94a3b8' }}>
         {props.formId
           ? `Form ID: ${props.formId}`
           : 'Assign a form in the Kajabi editor after import'}

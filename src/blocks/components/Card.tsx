@@ -1,9 +1,5 @@
 /**
  * <Card> block — Kajabi `card` type.
- *
- * Flexible content tile: image + heading + text + optional CTA.
- * Universal chrome flows in via ChromeProps. Built-in defaults: white bg,
- * 8px radius, light border. ChromeProps overrides any of these when set.
  */
 import type { BlockComponent } from '../types';
 import { withBlockDefaults } from '../blockDefaults';
@@ -14,19 +10,16 @@ export interface CardProps extends ChromeProps {
   imageAlt?: string;
   showImage?: boolean;
   heading?: string;
-  /** HTML body */
   text?: string;
   buttonText?: string;
   buttonUrl?: string;
   buttonBackgroundColor?: string;
   buttonTextColor?: string;
-  /** Bootstrap col 1-12. For a 3-card row use width="4". */
   width?: string;
 }
 
 export const Card: BlockComponent<CardProps> = (props) => {
   const chrome = getBlockChromeStyle(props) ?? {};
-  // Built-in defaults — chrome props win where they overlap.
   const style = {
     border: '1px solid #e5e7eb',
     borderRadius: 8,

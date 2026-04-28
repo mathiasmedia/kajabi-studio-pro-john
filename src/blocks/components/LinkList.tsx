@@ -1,7 +1,5 @@
 /**
  * <LinkList> block — Kajabi `link_list` type.
- *
- * Universal chrome flows in via ChromeProps so a link list can be carded.
  */
 import type { BlockComponent, SectionFlavor } from '../types';
 import { withBlockDefaults } from '../blockDefaults';
@@ -9,13 +7,10 @@ import { getBlockChromeStyle, serializeChromeProps, type ChromeProps } from '../
 
 export interface LinkListProps extends ChromeProps {
   heading?: string;
-  /** Kajabi menu handle whose links to render. */
   handle?: string;
   alignment?: 'left' | 'center' | 'right';
   layout?: 'horizontal' | 'vertical';
-  /** Bootstrap col 1-12 (only used in content sections) */
   width?: string;
-  /** Preview-only items shown in the editor (Kajabi resolves the real menu by handle). */
   previewItems?: { label: string; url?: string }[];
 }
 
