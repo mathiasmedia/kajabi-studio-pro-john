@@ -18,7 +18,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { Layers, LogOut, Shield, Users } from 'lucide-react';
+import { Layers, LogOut, Shield } from 'lucide-react';
 
 export function AppHeader({ actions }: { actions?: ReactNode }) {
   const navigate = useNavigate();
@@ -36,8 +36,10 @@ export function AppHeader({ actions }: { actions?: ReactNode }) {
             <Layers className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold leading-tight">Kajabi Studio Max</h1>
-            <p className="text-xs text-muted-foreground">Build, save, and export Kajabi themes.</p>
+            <h1 className="m-0 text-lg font-semibold leading-tight">Studio Pro</h1>
+            <p className="m-0 text-xs leading-tight text-muted-foreground">
+              Build, save, and export Kajabi themes.
+            </p>
           </div>
         </button>
         <div className="flex items-center gap-2">
@@ -65,14 +67,6 @@ export function AppHeader({ actions }: { actions?: ReactNode }) {
                   <DropdownMenuSeparator />
                 </>
               )}
-              {isAdmin && (
-                <>
-                  <DropdownMenuItem onClick={() => navigate('/admin')} className="gap-2">
-                    <Users className="h-4 w-4" /> Admin
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                </>
-              )}
               <DropdownMenuItem
                 onClick={signOut}
                 className="gap-2 text-destructive focus:text-destructive"
@@ -86,4 +80,3 @@ export function AppHeader({ actions }: { actions?: ReactNode }) {
     </header>
   );
 }
-
