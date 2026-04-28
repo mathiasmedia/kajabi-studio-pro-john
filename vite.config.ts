@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   optimizeDeps: {
     exclude: ['@k-studio-pro/engine'],
+    include: ['jszip', 'swiper', 'swiper/react'],
   },
   resolve: {
     alias: {
