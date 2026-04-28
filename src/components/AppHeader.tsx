@@ -18,7 +18,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { Layers, LogOut, Shield } from 'lucide-react';
+import { Layers, LogOut, Shield, Users } from 'lucide-react';
 
 export function AppHeader({ actions }: { actions?: ReactNode }) {
   const navigate = useNavigate();
@@ -64,6 +64,14 @@ export function AppHeader({ actions }: { actions?: ReactNode }) {
                     <p className="text-xs text-muted-foreground">Signed in as</p>
                     <p className="truncate text-sm font-medium">{user.email}</p>
                   </div>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              {isAdmin && (
+                <>
+                  <DropdownMenuItem onClick={() => navigate('/admin')} className="gap-2">
+                    <Users className="h-4 w-4" /> Admin
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                 </>
               )}

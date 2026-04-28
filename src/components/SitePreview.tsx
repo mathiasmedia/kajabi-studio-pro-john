@@ -4,11 +4,14 @@
  *
  * Parity with the editor preview:
  *  - The thumbnail tree is wrapped in `.preview-root` so authors' preview-
- *    scoped customCss selectors match here too.
+ *    scoped customCss selectors (e.g. `.preview-root > section:first-of-type
+ *    ::before`) match here too — without this, hero overlays render in the
+ *    editor and the export but are invisible in the dashboard thumbnail.
  *  - The site's customCss is injected into the inner stage as a scoped
  *    <style> tag (instance-scoped via a unique id so multiple thumbnails on
  *    the same dashboard don't collide).
- *  - Site fonts are injected per-instance the same way SiteEditor does.
+ *  - Site fonts are injected per-instance the same way SiteEditor does, so
+ *    headings/body in thumbnails use the right family.
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Site } from '@/lib/siteStore';
@@ -60,6 +63,8 @@ export function SitePreview({ site }: { site: Site }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(0.25);
   const reactId = useId();
+  // CSS-safe scope class — useId returns ":r0:" style values that aren't
+  // valid in selectors, so strip non-alphanumerics.
   const scopeClass = useMemo(
     () => `preview-thumb-${reactId.replace(/[^a-zA-Z0-9]/g, '')}`,
     [reactId],
@@ -78,12 +83,20 @@ export function SitePreview({ site }: { site: Site }) {
     return () => ro.disconnect();
   }, []);
 
+  // Scope the site's customCss to THIS thumbnail. We rewrite every selector
+  // so it's prefixed with `.<scopeClass>` — this both isolates the styles to
+  // this tile (so 12 thumbnails don't fight each other) and makes the
+  // author's `.preview-root > ...` selectors actually match the tree we
+  // render below (which IS wrapped in `.preview-root` inside this scope).
   const scopedCss = useMemo(() => {
     const css = site.design?.customCss;
     if (!css || typeof css !== 'string' || css.trim() === '') return '';
     return scopeCss(css, `.${scopeClass}`);
   }, [site.design?.customCss, scopeClass]);
 
+  // Inject Google Fonts + family rules per-instance, scoped to this tile.
+  // Honors Pro themeSettings custom-font slots so thumbnails match the
+  // exported Kajabi site (not just design.fonts.heading/body).
   useEffect(() => {
     const resolved = resolvePreviewFonts(site.design ?? null);
     if (!resolved) return;
@@ -144,6 +157,7 @@ export function SitePreview({ site }: { site: Site }) {
   let content: React.ReactNode = null;
   try {
     if (site.design) {
+      // Image slot resolution at thumbnail scale isn't worth a DB round-trip.
       content = renderDesign(site.design, 'index', {});
     }
   } catch (err) {

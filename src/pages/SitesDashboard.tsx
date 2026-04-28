@@ -1,6 +1,9 @@
 /**
  * Unified Workspace Dashboard — shows BOTH "Websites" (kind=site) and
  * "Landing pages" (kind=landing_page) on the same page in two sections.
+ *
+ * Single "New" button in the header with a dropdown so the expert always
+ * sees both options up front — no risk of missing one or the other.
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -97,6 +100,7 @@ export default function SitesDashboard() {
   const [activeTab, setActiveTab] = useState<TabKind>('site');
   const [defaultTab, setDefaultTabState] = useState<TabKind>('site');
 
+  // Load saved default-tab preference once we know the user.
   useEffect(() => {
     if (!user?.id) return;
     try {
@@ -106,7 +110,7 @@ export default function SitesDashboard() {
         setActiveTab(saved);
       }
     } catch {
-      // ignore
+      // ignore (private mode, etc.)
     }
   }, [user?.id]);
 
@@ -127,6 +131,7 @@ export default function SitesDashboard() {
     });
   }
 
+
   async function refresh() {
     const [sites, lps] = await Promise.all([
       listSites('site'),
@@ -140,6 +145,7 @@ export default function SitesDashboard() {
     refresh();
   }, []);
 
+  // Realtime: refresh on any sites or site_images change.
   useEffect(() => {
     const channel = supabase
       .channel('workspace-dashboard')
@@ -159,6 +165,7 @@ export default function SitesDashboard() {
     };
   }, []);
 
+  // When admin, look up owner emails for the visible items.
   useEffect(() => {
     const allItems = [...websites, ...landingPages];
     if (!isAdmin || allItems.length === 0) {
@@ -358,6 +365,8 @@ export default function SitesDashboard() {
   );
 }
 
+// ---------- pieces ----------
+
 function NewMenu({
   onNewSite,
   onNewLandingPage,
@@ -483,6 +492,7 @@ function WorkspaceTabs({
     </div>
   );
 }
+
 
 function DashboardSection({
   icon,
@@ -781,6 +791,7 @@ function CreateLandingPageDialog({
     }
   }, [open]);
 
+  // Auto-derive slug from name unless user has typed in the slug field.
   useEffect(() => {
     if (!slugDirty) setSlug(slugify(name));
   }, [name, slugDirty]);
@@ -847,6 +858,18 @@ function CreateLandingPageDialog({
   );
 }
 
+/**
+ * Standard / Pro tier toggle used in both create dialogs. The chosen tier
+ * maps to the underlying Kajabi base-theme zip (set once at creation; never
+ * mutated by the editor — see AGENTS.md base-theme rules).
+ *
+ *   site         → streamlined-home    | streamlined-home-pro
+ *   landing_page → encore-page         | encore-page-pro
+ *
+ * Pro themes are 100% backward compatible (additive blocks + section
+ * settings: sliders, animations, column layouts, search/filter blocks,
+ * Pro footer). Existing sites are unaffected.
+ */
 function TierToggle({
   value,
   onChange,
