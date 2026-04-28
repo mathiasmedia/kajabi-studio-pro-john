@@ -7,7 +7,13 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { exportFromTree, triggerDownload } from '@k-studio-pro/engine';
+import {
+  exportFromTree,
+  triggerDownload,
+  renderDesign,
+  designToPageTrees,
+  resolvePreviewFonts,
+} from '@k-studio-pro/engine';
 import { supabase } from '@/integrations/supabase/client';
 import {
   getSite,
@@ -17,8 +23,6 @@ import {
   type Site,
 } from '@/lib/siteStore';
 import { listSiteImages, imagesBySlot, type SiteImage } from '@/lib/imageStore';
-import { renderDesign, designToPageTrees } from '@/lib/siteDesign/render';
-import { resolvePreviewFonts } from '@/lib/siteDesign/resolvePreviewFonts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -491,4 +495,3 @@ function SlugField({
     </button>
   );
 }
-

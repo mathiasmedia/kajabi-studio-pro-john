@@ -15,8 +15,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Site } from '@/lib/siteStore';
-import { renderDesign } from '@/lib/siteDesign/render';
-import { resolvePreviewFonts } from '@/lib/siteDesign/resolvePreviewFonts';
+import { renderDesign, resolvePreviewFonts } from '@k-studio-pro/engine';
 
 const RENDER_WIDTH = 1280;
 const RENDER_HEIGHT = 800;
