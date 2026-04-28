@@ -104,6 +104,15 @@ export interface CommonSectionProps {
    * Falls back to "Header" / "Footer" / "Section" when omitted.
    */
   name?: string;
+
+  // ---- Pro-only (silently dropped on Standard themes) ----
+  /**
+   * Pro-only — space-separated CSS class names attached to the section's
+   * outer element. Combine with `TemplateDef.customCss` to scope bespoke
+   * styling without forking the base theme. Verified: Pro
+   * `sections/section.liquid` reads `section.settings.custom_css_class`.
+   */
+  customCssClass?: string;
 }
 
 /**
@@ -121,6 +130,66 @@ export interface ContentSectionProps extends CommonSectionProps {
   fullWidth?: boolean;
   /** Stretch section to viewport height → settings.full_height */
   fullHeight?: boolean;
+
+  // ---- Pro-only slider (silently dropped on Standard themes) ----
+  /** Pro-only — turns the section's blocks into a Swiper carousel. */
+  enableSlider?: boolean;
+  slidesPerViewDesktop?: number | string;
+  slidesPerViewMobile?: number | string;
+  sliderAutoplay?: boolean;
+  sliderAutoplayDelay?: number | string;
+  sliderSpeed?: number | string;
+  sliderLoop?: boolean;
+  sliderTransition?: 'slide' | 'fade' | 'cube' | 'coverflow' | 'flip';
+  /** Keep N leading blocks OUTSIDE the slider but inside the section. */
+  blockOffsetBefore?: number | string;
+  /** Keep N trailing blocks OUTSIDE the slider but inside the section. */
+  blockOffsetAfter?: number | string;
+  /** Show carousel nav arrows → settings.show_arrows (Pro default true). */
+  showArrows?: boolean;
+  /** Arrow stroke color → settings.arrow_color. */
+  arrowColor?: string;
+  /** Px gap pushing arrows away from slider edge → settings.arrow_slider_margin. */
+  arrowSliderMargin?: number | string;
+  /** Show pagination dots → settings.show_dots (Pro default true). */
+  showDots?: boolean;
+  /** Pagination dot color → settings.dot_color. */
+  dotColor?: string;
+  /**
+   * Slider layout preset → settings.slider_preset.
+   * - "default" (Classic): centered dots & arrows, classic Swiper layout.
+   * - "modern" (Kajabi default): dots bottom-left, arrows bottom-right, on one line below the slider.
+   * This is the ONLY field that controls dot/arrow alignment in Kajabi — there
+   * are no separate `dot_align` / `arrow_align` fields in section.liquid.
+   */
+  sliderPreset?: 'default' | 'modern';
+  /** Px gap between slides (desktop) → settings.space_between_slide_blocks. Pro default 0. */
+  spaceBetweenDesktop?: number | string;
+  /** Px gap between slides (mobile) → settings.space_between_slide_blocks_mobile. Pro default 0. */
+  spaceBetweenMobile?: number | string;
+
+  // ---- Pro-only multi-column layout (silently dropped on Standard themes) ----
+  /**
+   * Pro-only — split section into 2 or 3 desktop columns.
+   * Maps to `multiple_columns_on_desktop`: 1 → "no", 2 → "two", 3 → "three".
+   * Mobile collapses 1 → 2 → 3 automatically (Kajabi runtime behavior).
+   * Per-block `column: 1|2|3` assigns each block to its column (default 1).
+   * Verified against Pro `sections/section.liquid`.
+   */
+  columns?: 1 | 2 | 3;
+  /**
+   * Per-column widths in `fr` units, one entry per column. Defaults to "4,4" / "4,4,4".
+   * Examples: [6,6] for even split, [4,8] for sidebar layouts, [3,9] for narrow sidebar.
+   * Maps to `column_one_width` / `column_two_width` / `column_three_width`.
+   */
+  columnWidths?: number[];
+  /** Px gap between columns (0–150) → settings.multiple_column_gap. */
+  columnGap?: number | string;
+  /**
+   * Which column hosts the slider when `enableSlider` AND `columns >= 2` are both set.
+   * 1 → "first", 2 → "second", 3 → "third". Default 1.
+   */
+  sliderColumn?: 1 | 2 | 3;
 }
 
 /**
@@ -156,6 +225,12 @@ export interface HeaderSectionProps extends CommonSectionProps {
   closeOnScroll?: boolean;
   /** Mobile menu text alignment → settings.mobile_menu_text_alignment */
   mobileMenuTextAlignment?: 'left' | 'center' | 'right';
+
+  /**
+   * Pro-only — Full-Time Hamburger: forces the mobile slide-in panel to
+   * also show on desktop. Composes with sticky/overlay.
+   */
+  collapsed?: boolean;
 }
 
 /**

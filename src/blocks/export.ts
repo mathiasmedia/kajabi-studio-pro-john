@@ -7,7 +7,7 @@
  *   3. exportThemeZip(...) → merges into base streamlined-home zip
  */
 import type { ReactNode } from 'react';
-import { serializeTree, type PageTrees } from './serialize';
+import { serializeTree, type PageTrees, type SectionBackgroundOverride } from './serialize';
 import { exportThemeZip } from '@/engines/exportEngine';
 import type { BaseThemeName } from '@/engines/baseThemeValidator';
 import type { ProjectAsset } from '@/types/assets';
@@ -67,6 +67,40 @@ function stripFontCssBlock(css: string): string {
 }
 
 /**
+ * Build a CSS block that pins external background-image URLs onto sections
+ * by id. We do this because Kajabi's `image_picker_url` Liquid filter mangles
+ * any value in `bg_image` that isn't a Kajabi-uploaded asset id.
+ */
+function buildExternalBgCssBlock(
+  overrides: Map<string, SectionBackgroundOverride> | undefined,
+): string {
+  if (!overrides || overrides.size === 0) return '';
+  const rules: string[] = [];
+  for (const [sectionId, ovr] of overrides) {
+    rules.push(
+      `#section-${sectionId} {`,
+      `  background-image: url("${ovr.url}") !important;`,
+      `  background-size: cover;`,
+      `  background-position: ${ovr.position};`,
+      ovr.fixed ? `  background-attachment: fixed;` : '',
+      `}`,
+    );
+  }
+  return [
+    '/* === external section backgrounds === */',
+    rules.filter(Boolean).join('\n'),
+    '/* === end external section backgrounds === */',
+  ].join('\n');
+}
+
+function stripExternalBgCssBlock(css: string): string {
+  return css.replace(
+    /\/\* === external section backgrounds ===[\s\S]*?\/\* === end external section backgrounds === \*\//g,
+    '',
+  );
+}
+
+/**
  * Inject auto-generated font + type-scale CSS into settings_data.current.css.
  * Preserves any pre-existing user CSS by appending after a separator. Re-runs
  * are idempotent — old auto-generated blocks are stripped before appending.
@@ -74,34 +108,40 @@ function stripFontCssBlock(css: string): string {
 export function injectGlobalCss(
   settingsData: Record<string, unknown>,
   global: TreeGlobal | undefined,
+  externalBackgrounds?: Map<string, SectionBackgroundOverride>,
 ): Record<string, unknown> {
   const hasFontImports = Array.isArray(global?.fontImports) && global!.fontImports!.length > 0;
-  if (!global || (!global.headingFont && !global.bodyFont && !global.typeScale && !hasFontImports)) {
-    return settingsData;
-  }
+  const hasGlobal = !!(global && (global.headingFont || global.bodyFont || global.typeScale || hasFontImports));
+  const hasBgOverrides = !!externalBackgrounds && externalBackgrounds.size > 0;
+  if (!hasGlobal && !hasBgOverrides) return settingsData;
 
   // Font block — also includes any per-block @import URLs added by setBlockFont.
   let fontBlock = '';
-  if (global.headingFont || global.bodyFont || hasFontImports) {
-    const heading = resolveFont(global.headingFont);
-    const body = resolveFont(global.bodyFont);
+  if (hasGlobal && (global!.headingFont || global!.bodyFont || hasFontImports)) {
+    const heading = resolveFont(global!.headingFont);
+    const body = resolveFont(global!.bodyFont);
     fontBlock = buildFontCssBlock({
       heading,
       body,
-      extraImports: global.fontImports ?? [],
+      extraImports: global!.fontImports ?? [],
     });
   }
 
   // Type-scale block
-  const scaleBlock = buildTypeScaleCssBlock(global.typeScale as TypeScale | undefined);
+  const scaleBlock = hasGlobal ? buildTypeScaleCssBlock(global!.typeScale as TypeScale | undefined) : '';
 
-  if (!fontBlock && !scaleBlock) return settingsData;
+  // External section backgrounds (Supabase URLs etc. that image_picker_url mangles)
+  const bgBlock = buildExternalBgCssBlock(externalBackgrounds);
+
+  if (!fontBlock && !scaleBlock && !bgBlock) return settingsData;
 
   const root = (settingsData ?? {}) as { current?: Record<string, unknown> };
   const current = (root.current ?? {}) as Record<string, unknown>;
   const existingCss = typeof current.css === 'string' ? current.css : '';
-  const cleanExisting = stripTypeScaleCssBlock(stripFontCssBlock(existingCss)).trim();
-  const merged = [cleanExisting, fontBlock, scaleBlock]
+  const cleanExisting = stripExternalBgCssBlock(
+    stripTypeScaleCssBlock(stripFontCssBlock(existingCss)),
+  ).trim();
+  const merged = [cleanExisting, fontBlock, scaleBlock, bgBlock]
     .filter((s) => s && s.length > 0)
     .join('\n\n');
 
@@ -138,9 +178,14 @@ export async function exportFromTree(
   tree: ReactNode | PageTrees,
   opts: ExportFromTreeOptions = {},
 ): Promise<Blob> {
-  const { settingsData } = serializeTree(tree);
-  const withFonts = injectGlobalCss(settingsData, opts.global);
-  const withTheme = mergeThemeSettings(withFonts, opts.themeSettings, opts.customCss);
+  const { settingsData, externalBackgrounds } = serializeTree(tree, { baseTheme: opts.baseTheme });
+  const withFonts = injectGlobalCss(settingsData, opts.global, externalBackgrounds);
+  // If any section uses transition_effect: "fade", auto-inject a CSS workaround
+  // for Kajabi Pro's broken Swiper init (it doesn't pass fadeEffect:{crossFade:true},
+  // so old slides remain visible underneath new ones).
+  const fadeWorkaround = hasFadeSlider(withFonts) ? FADE_SLIDER_CSS : '';
+  const mergedCustomCss = [opts.customCss, fadeWorkaround].filter(s => s && s.trim()).join('\n\n');
+  const withTheme = mergeThemeSettings(withFonts, opts.themeSettings, mergedCustomCss || undefined);
   return exportThemeZip(withTheme, opts.assets ?? [], undefined, {
     baseTheme: opts.baseTheme,
   });
@@ -178,6 +223,49 @@ function mergeThemeSettings(
   }
 
   return { ...settingsData, current };
+}
+
+/**
+ * Kajabi Pro's section.liquid initializes Swiper for `effect: "fade"` without
+ * passing `fadeEffect: { crossFade: true }`. Result: old slides stay visible
+ * underneath new ones during the transition (visible "stacking" / overlap).
+ *
+ * This CSS forces inactive fade slides to position:absolute + opacity:0 so
+ * fade actually cross-fades. Auto-injected whenever any section in the export
+ * uses `transition_effect: "fade"`.
+ */
+const FADE_SLIDER_CSS = `/* Kajabi Pro slider fade fix — workaround for missing fadeEffect.crossFade in section.liquid */
+.swiper[data-effect="fade"] .swiper-wrapper { position: relative; }
+.swiper[data-effect="fade"] .swiper-slide {
+  position: absolute !important;
+  top: 0; left: 0; right: 0;
+  opacity: 0 !important;
+  transition: opacity 400ms ease-in-out;
+  pointer-events: none;
+}
+.swiper[data-effect="fade"] .swiper-slide.swiper-slide-active {
+  position: relative !important;
+  opacity: 1 !important;
+  pointer-events: auto;
+  z-index: 1;
+}`;
+
+/**
+ * Walk settingsData.current.sections looking for any section whose settings
+ * declare transition_effect: "fade". Used to decide whether to inject the
+ * fade workaround CSS into the exported theme.
+ */
+function hasFadeSlider(settingsData: Record<string, unknown>): boolean {
+  const root = settingsData as { current?: { sections?: Record<string, unknown> } };
+  const sections = root.current?.sections;
+  if (!sections || typeof sections !== 'object') return false;
+  for (const section of Object.values(sections)) {
+    const s = section as { settings?: Record<string, unknown> } | undefined;
+    if (s?.settings?.transition_effect === 'fade' && s.settings.enable_slider === 'true') {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
