@@ -1,14 +1,5 @@
 /**
  * <VideoEmbed> block — Kajabi `video_embed` type.
- *
- * Real Kajabi schema (from block_video_embed.liquid): a SINGLE field
- * called `code` containing raw embed HTML (iframe / script tag from
- * YouTube/Vimeo/Wistia/etc).
- *
- * For convenience, this component also accepts a `videoUrl` and auto-converts
- * common YouTube/Vimeo URLs to an iframe, but you can pass `code` directly.
- *
- * Universal chrome flows in via ChromeProps.
  */
 import type { BlockComponent } from '../types';
 import { withBlockDefaults } from '../blockDefaults';
@@ -18,7 +9,6 @@ export interface VideoEmbedProps extends ChromeProps {
   code?: string;
   videoUrl?: string;
   aspectRatio?: '16:9' | '4:3' | '1:1';
-  /** Bootstrap col 1-12. Default 12 (full width). */
   width?: string;
 }
 

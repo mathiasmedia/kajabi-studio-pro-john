@@ -1,17 +1,5 @@
 /**
  * <Image> block — Kajabi `image` type.
- *
- * Real Kajabi schema (from block_image.liquid):
- *   image, image_alt, image_width, image_border_radius,
- *   image_align_desktop, image_align_mobile, image_caption,
- *   img_action, new_tab, overlay_text, enable_overlay,
- *   overlay_background_color, overlay_text_color,
- *   image_first, gallery, always_show_on_mobile
- *
- * Universal chrome flows in via ChromeProps. Note the `image_border_radius`
- * Kajabi field maps to `imageBorderRadius` on the IMAGE itself, while the
- * universal `border_radius` (chrome) maps to the wrapper's borderRadius —
- * Kajabi treats them as two distinct fields.
  */
 import type { BlockComponent } from '../types';
 import { withBlockDefaults } from '../blockDefaults';
@@ -20,21 +8,10 @@ import { getBlockChromeStyle, serializeChromeProps, type ChromeProps } from '../
 export interface ImageProps extends ChromeProps {
   src: string;
   alt?: string;
-  /** Optional click-through URL → maps to img_action */
   href?: string;
-  /**
-   * Bootstrap column width 1–12 (block container width) — same meaning as
-   * every other block in the library. NOTE: historically this prop meant
-   * "image pixel width", which collided with the universal column-width
-   * convention. As of the fix, bare numeric strings "1".."12" are treated
-   * as column widths; use `imageWidth` for explicit pixel sizing.
-   */
   width?: string;
-  /** Bootstrap col 1-12 (block container width) — explicit alias for `width`. */
   colWidth?: string;
-  /** CSS pixel width of the <img> element itself (Kajabi `image_width`). */
   imageWidth?: string;
-  /** Corner radius applied to the IMAGE itself (Kajabi `image_border_radius`). */
   imageBorderRadius?: string;
   caption?: string;
   align?: 'left' | 'center' | 'right';
@@ -48,13 +25,6 @@ export interface ImageProps extends ChromeProps {
 const COL_WIDTH_RE = /^([1-9]|1[0-2])$/;
 const warnedColWidthCollision = new Set<string>();
 
-/**
- * Resolve the pixel width for the <img> element.
- * Precedence: imageWidth > width (only if it doesn't look like a Bootstrap col) > none.
- * If `width` looks like "1".."12", it's treated as a column width (handled by the
- * section wrapper) and IGNORED here — with a one-time console warning so callers
- * can migrate to `imageWidth`.
- */
 function resolveImagePixelWidth(props: ImageProps): string | undefined {
   if (props.imageWidth) return props.imageWidth;
   if (!props.width) return undefined;
@@ -127,14 +97,11 @@ export const Image: BlockComponent<ImageProps> = (props) => {
 Image.kajabiType = 'image';
 Image.allowedIn = ['content'];
 Image.serialize = (p) => {
-  // Map our 'left'/'center'/'right' align to Kajabi's flex-start/center/flex-end.
   const flexAlign =
     p.align === 'left' ? 'flex-start' :
     p.align === 'right' ? 'flex-end' : 'center';
-  // Column width precedence: colWidth > width (only if it looks like a Bootstrap col) > '10'.
   const colFromWidth = p.width && COL_WIDTH_RE.test(p.width) ? p.width : undefined;
   const col = p.colWidth ?? colFromWidth ?? '10';
-  // Pixel width: imageWidth wins; otherwise width only if it does NOT look like a col.
   const pixelWidth = p.imageWidth ?? (p.width && !COL_WIDTH_RE.test(p.width) ? p.width : '');
   const base = withBlockDefaults({
     width: col,
@@ -157,7 +124,6 @@ Image.serialize = (p) => {
     overlay_background_color: p.overlayBackgroundColor ?? '',
     overlay_text_color: p.overlayTextColor ?? '',
   });
-  // image schema has no `text_align`; strip the default injected by withBlockDefaults.
   delete (base as Record<string, unknown>).text_align;
   return base;
 };

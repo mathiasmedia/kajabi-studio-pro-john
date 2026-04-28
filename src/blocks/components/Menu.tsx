@@ -1,8 +1,5 @@
 /**
  * <Menu> block — Kajabi `menu` type.
- *
- * Renders a navigation menu by referencing a Kajabi menu by handle.
- * Universal chrome flows in via ChromeProps.
  */
 import type { BlockComponent } from '../types';
 import { getBlockChromeStyle, type ChromeProps } from '../blockChrome';
@@ -13,14 +10,9 @@ export interface MenuItem {
 }
 
 export interface MenuProps extends ChromeProps {
-  /** Kajabi menu handle. Defaults to 'main-menu'. */
   handle?: string;
   alignment?: 'left' | 'center' | 'right';
   stretch?: boolean;
-  /**
-   * Optional explicit link list shown ONLY in the live preview.
-   * Kajabi resolves the real menu by `handle` at render time and ignores this.
-   */
   previewItems?: MenuItem[];
 }
 

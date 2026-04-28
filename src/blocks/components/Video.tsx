@@ -1,22 +1,12 @@
 /**
  * <Video> block — Kajabi `video` type.
- *
- * Different from <VideoEmbed> (YouTube/Vimeo URL).
- * This block references a video uploaded to the Kajabi library by ID.
- *
- * Real Kajabi schema (block_video.liquid):
- *   video, poster (image), auto_play, controls_on_load, loop, muted
- *
- * Universal chrome flows in via ChromeProps and wraps the player frame.
  */
 import type { BlockComponent } from '../types';
 import { withBlockDefaults } from '../blockDefaults';
 import { getBlockChromeStyle, serializeChromeProps, type ChromeProps } from '../blockChrome';
 
 export interface VideoProps extends ChromeProps {
-  /** Wistia/Kajabi video ID. Leave blank if user will pick in editor. */
   videoId?: string;
-  /** Poster image URL shown before play */
   poster?: string;
   autoPlay?: boolean;
   showControls?: boolean;
@@ -32,9 +22,7 @@ export const Video: BlockComponent<VideoProps> = (props) => {
     <div style={chrome}>
       <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 8, background: '#000' }}>
         <img src={poster} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-        <div style={{
-          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{
             width: 72, height: 72, borderRadius: '50%', background: 'rgba(255,255,255,0.92)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',

@@ -1,30 +1,14 @@
 /**
  * <Text> block — Kajabi `text` type.
- *
- * Real Kajabi schema (from block_text.liquid):
- *   - text (HTML, the entire content — heading + paragraphs are inline)
- *   - use_btn (boolean_string)
- *   - drop_cap, cap_color
- *   - + shared button fields (btn_text, btn_action, btn_*) when use_btn=true
- *
- * NOTE: Kajabi's text block has NO separate heading field — write headings
- * as <h1>/<h2>/etc inside the `text` HTML.
- *
- * Universal chrome (background_color, padding, border_radius, box_shadow)
- * lands on this block's root via getBlockChromeStyle, so a Text block can
- * render as a card whenever the planner sets those fields.
  */
 import type { BlockComponent } from '../types';
 import { withBlockDefaults } from '../blockDefaults';
 import { getBlockChromeStyle, serializeChromeProps, type ChromeProps } from '../blockChrome';
 
 export interface TextProps extends ChromeProps {
-  /** HTML / rich text content. Use <h1>...<h6> for headings. */
   text: string;
   align?: 'left' | 'center' | 'right';
-  /** Bootstrap-style column width 1-12. Default 12 (full width). */
   width?: string;
-  /** If true, renders a CTA button below text */
   showButton?: boolean;
   buttonText?: string;
   buttonUrl?: string;

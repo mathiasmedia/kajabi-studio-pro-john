@@ -1,22 +1,11 @@
 /**
  * <Feature> block — Kajabi `feature` type.
- *
- * Real Kajabi schema (from block_feature.liquid):
- *   - text (HTML, includes BOTH heading and body — single rich-text field)
- *   - image, image_alt, image_width, hide_image, image_border_radius
- *   - img_action, new_tab_image
- *   - use_btn + shared button fields
- *
- * Universal chrome (background_color, padding, border_radius, box_shadow)
- * lands on the root via getBlockChromeStyle so feature tiles render as
- * cards whenever the planner sets those fields.
  */
 import type { BlockComponent } from '../types';
 import { withBlockDefaults } from '../blockDefaults';
 import { getBlockChromeStyle, serializeChromeProps, type ChromeProps } from '../blockChrome';
 
 export interface FeatureProps extends ChromeProps {
-  /** HTML content — wrap heading in <h3> and body in <p> */
   text: string;
   image?: string;
   imageAlt?: string;
@@ -26,7 +15,6 @@ export interface FeatureProps extends ChromeProps {
   imageHref?: string;
   newTabImage?: boolean;
   align?: 'left' | 'center' | 'right';
-  /** Bootstrap col 1-12. For a 3-col grid use width="4". */
   width?: string;
   showButton?: boolean;
   buttonText?: string;
@@ -34,7 +22,7 @@ export interface FeatureProps extends ChromeProps {
   buttonTextColor?: string;
   buttonBackgroundColor?: string;
   buttonBorderRadius?: string;
-  buttonStyle?: 'solid' | 'outline';
+  buttonStyle?: 'solid' | 'outline' | 'text';
   buttonSize?: 'small' | 'medium' | 'large';
   buttonWidth?: 'auto' | 'full';
   newTab?: boolean;
@@ -43,6 +31,10 @@ export interface FeatureProps extends ChromeProps {
 export const Feature: BlockComponent<FeatureProps> = (props) => {
   const align = props.align ?? 'center';
   const chrome = getBlockChromeStyle(props);
+  const hasExplicitImageWidth = !!props.imageWidth;
+  const imageStyle = hasExplicitImageWidth
+    ? { width: '100%', maxWidth: `${props.imageWidth}px` }
+    : { width: '80px', maxWidth: '100%' };
   return (
     <div style={{ textAlign: align, padding: '16px 0', ...chrome }}>
       {!props.hideImage && props.image && (
@@ -50,31 +42,45 @@ export const Feature: BlockComponent<FeatureProps> = (props) => {
           src={props.image}
           alt={props.imageAlt ?? ''}
           style={{
-            maxWidth: props.imageWidth ? `${props.imageWidth}px` : 80,
+            ...imageStyle,
+            height: 'auto',
+            display: 'block',
+            borderRadius: props.imageBorderRadius ? `${props.imageBorderRadius}px` : undefined,
             marginBottom: 12,
           }}
         />
       )}
       <div dangerouslySetInnerHTML={{ __html: props.text }} />
       {props.showButton && props.buttonText && (() => {
-        const isOutline = props.buttonStyle === 'outline';
+        const style = props.buttonStyle ?? 'solid';
+        const isOutline = style === 'outline';
+        const isText = style === 'text';
         const sizePad =
           props.buttonSize === 'small' ? '8px 16px' :
           props.buttonSize === 'large' ? '14px 28px' :
           '10px 20px';
+        const textBtnColor =
+          props.buttonBackgroundColor || props.buttonTextColor || 'currentColor';
         return (
           <a
+            className={`btn btn--${style} btn--${props.buttonSize ?? 'medium'}`}
             href={props.buttonUrl || '#'}
             target={props.newTab ? '_blank' : undefined}
             rel={props.newTab ? 'noopener noreferrer' : undefined}
             style={{
               display: 'inline-block',
               marginTop: 12,
-              padding: sizePad,
-              color: props.buttonTextColor || (isOutline ? '#3B82F6' : '#fff'),
-              backgroundColor: isOutline ? 'transparent' : (props.buttonBackgroundColor || '#3B82F6'),
-              border: isOutline ? `2px solid ${props.buttonBackgroundColor || '#3B82F6'}` : 'none',
-              borderRadius: props.buttonBorderRadius ? `${props.buttonBorderRadius}px` : 4,
+              padding: isText ? '0' : sizePad,
+              color: isText
+                ? textBtnColor
+                : props.buttonTextColor || (isOutline ? 'currentColor' : '#fff'),
+              backgroundColor: isText || isOutline ? 'transparent' : (props.buttonBackgroundColor || '#3B82F6'),
+              border: isText
+                ? 'none'
+                : isOutline
+                  ? `2px solid ${props.buttonBackgroundColor || props.buttonTextColor || 'currentColor'}`
+                  : 'none',
+              borderRadius: isText ? 0 : (props.buttonBorderRadius ? `${props.buttonBorderRadius}px` : 4),
               textDecoration: 'none',
               width: props.buttonWidth === 'full' ? '100%' : 'auto',
             }}
@@ -91,7 +97,7 @@ Feature.kajabiType = 'feature';
 Feature.allowedIn = ['content'];
 Feature.serialize = (p) => withBlockDefaults({
   text: p.text ?? '',
-  width: p.width ?? '4',  // default to 3-column grid
+  width: p.width ?? '4',
   text_align: p.align ?? 'center',
   ...serializeChromeProps(p),
   background_color: p.backgroundColor ?? '',
