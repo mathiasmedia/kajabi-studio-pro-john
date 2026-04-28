@@ -18,6 +18,7 @@ import {
 } from '@/lib/siteStore';
 import { listSiteImages, imagesBySlot, type SiteImage } from '@/lib/imageStore';
 import { renderDesign, designToPageTrees } from '@/lib/siteDesign/render';
+import { resolvePreviewFonts } from '@/lib/siteDesign/resolvePreviewFonts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -42,7 +43,6 @@ const SYSTEM_PAGE_LABELS: Record<string, string> = {
   '404': '404',
 };
 
-/** Friendly tab label for any system or custom page key. */
 function pageLabel(key: PageKey): string {
   if (SYSTEM_PAGE_LABELS[key]) return SYSTEM_PAGE_LABELS[key];
   return key
@@ -116,47 +116,80 @@ export default function SiteEditor() {
   const pageKeys = site?.design?.pageKeys ?? [];
 
   useEffect(() => {
-    const fonts = site?.design?.fonts;
-    if (!fonts) return;
-    const families: string[] = [];
-    const seen = new Set<string>();
-    const cleanName = (name?: string) => (name ? name.split(':')[0].trim() : '');
-    const add = (name?: string) => {
-      const key = cleanName(name);
-      if (!key || seen.has(key.toLowerCase())) return;
-      seen.add(key.toLowerCase());
-      families.push(`${key.replace(/\s+/g, '+')}:wght@300;400;500;600;700;800`);
-    };
-    add(fonts.heading);
-    add(fonts.body);
-    fonts.extras?.forEach(add);
-    if (families.length === 0) return;
-    const href = `https://fonts.googleapis.com/css2?${families.map(f => `family=${f}`).join('&')}&display=swap`;
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = href;
-    if (site?.id) link.dataset.previewFonts = site.id;
-    document.head.appendChild(link);
+    if (!site?.design) return;
+    const resolved = resolvePreviewFonts(site.design);
+    if (!resolved) return;
+    const { headingFamily, bodyFamily, googleFamilies, rawLinkTags } = resolved;
+    const cleanupNodes: HTMLElement[] = [];
 
-    const style = document.createElement('style');
-    const headingName = cleanName(fonts.heading);
-    const bodyName = cleanName(fonts.body);
-    const headingStack = headingName ? `'${headingName}', Georgia, serif` : null;
-    const bodyStack = bodyName
-      ? `'${bodyName}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
+    if (googleFamilies.length > 0) {
+      const families = googleFamilies.map((k) =>
+        `${k.replace(/\s+/g, '+')}:wght@300;400;500;600;700;800`,
+      );
+      const href = `https://fonts.googleapis.com/css2?${families.map((f) => `family=${f}`).join('&')}&display=swap`;
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      if (site.id) link.dataset.previewFonts = site.id;
+      document.head.appendChild(link);
+      cleanupNodes.push(link);
+    }
+
+    rawLinkTags.forEach((href) => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      if (site.id) link.dataset.previewFonts = site.id;
+      document.head.appendChild(link);
+      cleanupNodes.push(link);
+    });
+
+    const headingStack = headingFamily ? `'${headingFamily}', Georgia, serif` : null;
+    const bodyStack = bodyFamily
+      ? `'${bodyFamily}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`
       : null;
-    style.textContent = [
-      bodyStack ? `.preview-root, .preview-root * { font-family: ${bodyStack}; }` : '',
-      headingStack ? `.preview-root :is(h1,h2,h3,h4,h5,h6), .preview-root :is(h1,h2,h3,h4,h5,h6) * { font-family: ${headingStack}; }` : '',
-    ].filter(Boolean).join('\n');
-    if (site?.id) style.dataset.previewFonts = site.id;
-    document.head.appendChild(style);
+    if (headingStack || bodyStack || resolved.overrideCss) {
+      const style = document.createElement('style');
+      const scope = '.preview-root';
+      const scopeRules = (css: string) =>
+        css.replace(/(^|\})\s*([^{}@]+?)\s*\{/g, (_m, brace, sel) => {
+          const scoped = sel
+            .split(',')
+            .map((s: string) => `${scope} ${s.trim()}`)
+            .join(', ');
+          return `${brace} ${scoped} {`;
+        });
+      const scopedOverrides = resolved.overrideCss
+        ? resolved.overrideCss.replace(/@media[^{]+\{[^}]+\}\s*\}/g, (block) =>
+            block.replace(/(\{[^@}]*?)([a-zA-Z][^{}]*?)\s*\{/g, (_m, pre, sel) => {
+              const scoped = sel
+                .split(',')
+                .map((s: string) => `${scope} ${s.trim()}`)
+                .join(', ');
+              return `${pre} ${scoped} {`;
+            }),
+          )
+        : '';
+      const topLevel = resolved.overrideCss.replace(/@media[^{]+\{[^}]+\}\s*\}/g, '').trim();
+      style.textContent = [
+        bodyStack ? `${scope}, ${scope} * { font-family: ${bodyStack}; }` : '',
+        headingStack
+          ? `${scope} :is(h1,h2,h3,h4,h5,h6), ${scope} :is(h1,h2,h3,h4,h5,h6) * { font-family: ${headingStack}; }`
+          : '',
+        topLevel ? scopeRules(topLevel) : '',
+        scopedOverrides,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      if (site.id) style.dataset.previewFonts = site.id;
+      document.head.appendChild(style);
+      cleanupNodes.push(style);
+    }
 
     return () => {
-      link.remove();
-      style.remove();
+      cleanupNodes.forEach((n) => n.remove());
     };
-  }, [site?.design?.fonts, site?.id]);
+  }, [site?.design, site?.id]);
 
   useEffect(() => {
     const css = site?.design?.customCss;
