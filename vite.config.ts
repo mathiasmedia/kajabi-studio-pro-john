@@ -3,24 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 
-// Inlined from @k-studio-pro/engine/vite (Node 22 can't strip TS types under
-// node_modules, so we can't import the helper directly into vite.config.ts).
-// Keep this in sync with node_modules/@k-studio-pro/engine/src/vite.ts.
-function viteEngineAliases(projectRoot: string) {
-  const dir = (sub: string) =>
-    path.resolve(projectRoot, "node_modules/@k-studio-pro/engine/src", sub) + "/";
-  const file = (f: string) =>
-    path.resolve(projectRoot, "node_modules/@k-studio-pro/engine/src", f);
-  return [
-    { find: /^@\/blocks\//, replacement: dir("blocks") },
-    { find: /^@\/engines\//, replacement: dir("engines") },
-    { find: /^@\/lib\/siteDesign\//, replacement: dir("siteDesign") },
-    { find: /^@\/types\//, replacement: dir("types") },
-    { find: /^@\/blocks$/, replacement: file("blocks/index.ts") },
-    { find: /^@\/engines$/, replacement: file("engines/index.ts") },
-    { find: /^@\/lib\/siteDesign$/, replacement: file("siteDesign/index.ts") },
-  ];
-}
+const engineSrc = (sub: string) => path.resolve(__dirname, `./node_modules/@k-studio-pro/engine/src/${sub}`);
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -33,13 +16,29 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   optimizeDeps: {
-    include: ['jszip', 'swiper', 'swiper/react'],
+    include: ["jszip"],
   },
   resolve: {
+    // More-specific aliases MUST come before the catch-all "@".
     alias: [
-      ...viteEngineAliases(__dirname),
+      { find: "@kajabi-studio/engine", replacement: engineSrc("index.ts") },
+      { find: /^@\/blocks$/, replacement: engineSrc("blocks") },
+      { find: /^@\/blocks\//, replacement: engineSrc("blocks") + "/" },
+      { find: /^@\/engines$/, replacement: engineSrc("engines") },
+      { find: /^@\/engines\//, replacement: engineSrc("engines") + "/" },
+      { find: /^@\/lib\/siteDesign$/, replacement: engineSrc("siteDesign") },
+      { find: /^@\/lib\/siteDesign\//, replacement: engineSrc("siteDesign") + "/" },
+      { find: /^@\/types\/assets$/, replacement: engineSrc("types/assets") },
+      { find: /^@\/types\/schemas$/, replacement: engineSrc("types/schemas") },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
-    dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core", "swiper"],
+    dedupe: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "react/jsx-dev-runtime",
+      "@tanstack/react-query",
+      "@tanstack/query-core",
+    ],
   },
 }));
