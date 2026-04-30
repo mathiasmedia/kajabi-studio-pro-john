@@ -67,9 +67,13 @@ function viteEngineAliases(projectRoot: string) {
 // startup — DO NOT do that; this plugin is the proper fix.
 function viteEngineZipPlugin(): Plugin {
   const PREFIX = "\0engine-zip-url:";
+  let isBuild = false;
   return {
     name: "k-studio-engine-zip-url",
     enforce: "pre",
+    configResolved(config) {
+      isBuild = config.command === "build";
+    },
     async resolveId(source, importer) {
       if (!source.endsWith(".zip?url")) return null;
       const withoutQuery = source.slice(0, -"?url".length);
@@ -87,7 +91,17 @@ function viteEngineZipPlugin(): Plugin {
     load(id) {
       if (!id.startsWith(PREFIX)) return null;
       const absPath = id.slice(PREFIX.length);
-      return `export { default } from ${JSON.stringify(absPath + "?url")};`;
+      if (isBuild) {
+        // In build, emit the zip as a Rollup asset to get a hashed final URL.
+        const referenceId = this.emitFile({
+          type: "asset",
+          name: path.basename(absPath),
+          source: fs.readFileSync(absPath),
+        });
+        return `export default import.meta.ROLLUP_FILE_URL_${referenceId};`;
+      }
+      // In dev, re-export via Vite's native ?url handler on an /@fs path.
+      return `export { default } from ${JSON.stringify("/@fs" + absPath + "?url")};`;
     },
   };
 }
