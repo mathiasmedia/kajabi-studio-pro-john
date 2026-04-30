@@ -51,6 +51,7 @@ export default defineConfig(({ mode }) => ({
       { find: /^@k-studio-pro\/engine\/data$/, replacement: engineFile("data/index.ts") },
       { find: /^@k-studio-pro\/engine\/shell$/, replacement: engineFile("shell/index.ts") },
       { find: /^@k-studio-pro\/engine\/vite$/, replacement: engineFile("vite.ts") },
+      { find: /^@engine-auth$/, replacement: engineFile("shell/hooks/useAuth.tsx") },
       { find: /^@k-studio-pro\/engine$/, replacement: engineFile("index.ts") },
       // Legacy alias (kept for any straggler imports inside engine internals).
       { find: "@kajabi-studio/engine", replacement: engineFile("index.ts") },
