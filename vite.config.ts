@@ -109,6 +109,13 @@ export default defineConfig(({ mode }) => ({
     // Order matters: more-specific aliases must come before "@".
     alias: [
       ...viteEngineAliases(__dirname),
+      {
+        find: "@engine-auth",
+        replacement: path.resolve(
+          __dirname,
+          "./node_modules/@k-studio-pro/engine/src/shell/hooks/useAuth.tsx",
+        ),
+      },
       { find: "@", replacement: path.resolve(__dirname, "./src") },
     ],
     // Dedupe is CRITICAL — without this, the engine package and the thin-client
