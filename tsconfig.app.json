@@ -23,6 +23,7 @@
     "noFallthroughCasesInSwitch": false,
 
     "paths": {
+      "@/types/*": ["./node_modules/@k-studio-pro/engine/src/types/*"],
       "@/*": ["./src/*"]
     }
   },
