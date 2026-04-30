@@ -1,20 +1,97 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import fs from "fs";
+import type { Plugin } from "vite";
 import { componentTagger } from "lovable-tagger";
 
-// Engine path helpers — guarantee a trailing slash on directories so deep
-// imports like `@/blocks/components/Slider` don't collapse into
-// `…/blockscomponents/Slider` (path.resolve strips trailing slashes).
-const ENGINE_SRC = path.resolve(
-  __dirname,
-  "node_modules/@k-studio-pro/engine/src",
-);
-function engineFile(file: string): string {
-  return path.resolve(ENGINE_SRC, file);
+// https://vitejs.dev/config/
+//
+// Thin-client vite config. Mirrors thin-client-templates/vite.config.ts
+// from the master repo verbatim, except the engine helpers are inlined
+// here instead of imported from `@k-studio-pro/engine/vite`. Reason:
+// the engine package ships TypeScript source only (no compiled .js),
+// and the Lovable dev-server's Node runtime cannot strip types from
+// files inside node_modules — `import { ... } from "@k-studio-pro/engine/vite"`
+// at config-load time crashes with ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING.
+//
+// The inlined helpers below are byte-equivalent to the engine's
+// `src/vite.ts` (viteEngineAliases + viteEngineZipPlugin). When the engine
+// ships a compiled .js entrypoint for the /vite subpath, swap this back
+// to: `import { viteEngineAliases, viteEngineZipPlugin } from "@k-studio-pro/engine/vite";`
+
+// ─── Inlined: viteEngineAliases ────────────────────────────────────────
+function engineDir(projectRoot: string, sub: string): string {
+  return (
+    path.resolve(projectRoot, "node_modules/@k-studio-pro/engine/src", sub) +
+    "/"
+  );
+}
+function engineFile(projectRoot: string, file: string): string {
+  return path.resolve(
+    projectRoot,
+    "node_modules/@k-studio-pro/engine/src",
+    file,
+  );
+}
+function viteEngineAliases(projectRoot: string) {
+  return [
+    { find: /^@\/blocks\//, replacement: engineDir(projectRoot, "blocks") },
+    { find: /^@\/engines\//, replacement: engineDir(projectRoot, "engines") },
+    {
+      find: /^@\/lib\/siteDesign\//,
+      replacement: engineDir(projectRoot, "siteDesign"),
+    },
+    { find: /^@\/types\//, replacement: engineDir(projectRoot, "types") },
+    {
+      find: /^@\/blocks$/,
+      replacement: engineFile(projectRoot, "blocks/index.ts"),
+    },
+    {
+      find: /^@\/engines$/,
+      replacement: engineFile(projectRoot, "engines/index.ts"),
+    },
+    {
+      find: /^@\/lib\/siteDesign$/,
+      replacement: engineFile(projectRoot, "siteDesign/index.ts"),
+    },
+  ];
 }
 
-// https://vitejs.dev/config/
+// ─── Inlined: viteEngineZipPlugin ──────────────────────────────────────
+// Makes the engine's `*.zip?url` base-theme imports survive esbuild
+// dep-pre-bundling. Without this, esbuild stubs the four base-theme zip
+// URLs to "" during pre-bundle, BASE_THEME_URLS ends up empty, and exports
+// either fail or download a corrupt 1-byte zip. The historical "fix" was
+// to copy zips into public/base-theme/ and override BASE_THEME_URLS at
+// startup — DO NOT do that; this plugin is the proper fix.
+function viteEngineZipPlugin(): Plugin {
+  const PREFIX = "\0engine-zip-url:";
+  return {
+    name: "k-studio-engine-zip-url",
+    enforce: "pre",
+    async resolveId(source, importer) {
+      if (!source.endsWith(".zip?url")) return null;
+      const withoutQuery = source.slice(0, -"?url".length);
+      let absPath: string;
+      if (path.isAbsolute(withoutQuery)) {
+        absPath = withoutQuery;
+      } else if (importer) {
+        absPath = path.resolve(path.dirname(importer), withoutQuery);
+      } else {
+        return null;
+      }
+      if (!fs.existsSync(absPath)) return null;
+      return PREFIX + absPath;
+    },
+    load(id) {
+      if (!id.startsWith(PREFIX)) return null;
+      const absPath = id.slice(PREFIX.length);
+      return `export { default } from ${JSON.stringify(absPath + "?url")};`;
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
@@ -23,9 +100,36 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
-  // Treat .zip as a static asset so engine's `*.zip?url` imports resolve to URLs.
-  assetsInclude: ["**/*.zip"],
+  plugins: [
+    react(),
+    viteEngineZipPlugin(),
+    mode === "development" && componentTagger(),
+  ].filter(Boolean),
+  resolve: {
+    // Order matters: more-specific aliases must come before "@".
+    alias: [
+      ...viteEngineAliases(__dirname),
+      { find: "@", replacement: path.resolve(__dirname, "./src") },
+    ],
+    // Dedupe is CRITICAL — without this, the engine package and the thin-client
+    // app can each get their own copy of React / React Router, fragmenting
+    // React contexts (most visibly: AuthProvider in the engine shell vs.
+    // useAuth() called from a different React copy).
+    dedupe: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "react/jsx-dev-runtime",
+      "react-router-dom",
+      "@tanstack/react-query",
+      "@tanstack/query-core",
+      "swiper",
+      "@k-studio-pro/engine",
+    ],
+  },
+  // Pre-bundle React + Router so Vite ships ONE copy across both the thin
+  // client and the engine package's shell. DO NOT add the engine to
+  // optimizeDeps.exclude — that brings the fragmentation back.
   optimizeDeps: {
     include: [
       "react",
@@ -33,45 +137,6 @@ export default defineConfig(({ mode }) => ({
       "react-dom",
       "react-dom/client",
       "react-router-dom",
-      "jszip",
-    ],
-    // Engine ships `*.zip?url` imports; esbuild can't pre-bundle that. Let Vite
-    // serve the engine package directly instead.
-    exclude: ["@k-studio-pro/engine"],
-    esbuildOptions: {
-      loader: {
-        ".zip": "empty",
-      },
-    },
-  },
-  resolve: {
-    // Order matters: more-specific aliases must come before "@".
-    alias: [
-      // ---- Engine package ----
-      { find: /^@k-studio-pro\/engine\/data$/, replacement: engineFile("data/index.ts") },
-      { find: /^@k-studio-pro\/engine\/shell$/, replacement: engineFile("shell/index.ts") },
-      { find: /^@k-studio-pro\/engine\/vite$/, replacement: engineFile("vite.ts") },
-      { find: /^@engine-auth$/, replacement: engineFile("shell/hooks/useAuth.tsx") },
-      { find: /^@k-studio-pro\/engine$/, replacement: engineFile("index.ts") },
-      // Legacy alias (kept for any straggler imports inside engine internals).
-      { find: "@kajabi-studio/engine", replacement: engineFile("index.ts") },
-      // Backward-compat: legacy @/blocks, @/engines, @/lib/siteDesign, @/types
-      // imports inside the engine package resolve back into the engine source.
-      { find: /^@\/blocks(\/.*)?$/, replacement: ENGINE_SRC + "/blocks$1" },
-      { find: /^@\/engines(\/.*)?$/, replacement: ENGINE_SRC + "/engines$1" },
-      { find: /^@\/lib\/siteDesign(\/.*)?$/, replacement: ENGINE_SRC + "/siteDesign$1" },
-      { find: /^@\/types(\/.*)?$/, replacement: ENGINE_SRC + "/types$1" },
-      // ---- Thin client ----
-      { find: "@", replacement: path.resolve(__dirname, "./src") },
-    ],
-    dedupe: [
-      "react",
-      "react-dom",
-      "react/jsx-runtime",
-      "react/jsx-dev-runtime",
-      "@tanstack/react-query",
-      "@tanstack/query-core",
-      "swiper",
     ],
   },
 }));
