@@ -28,6 +28,7 @@
       "@k-studio-pro/engine/data": ["./node_modules/@k-studio-pro/engine/src/data/index.ts"],
       "@k-studio-pro/engine/shell": ["./node_modules/@k-studio-pro/engine/src/shell/index.ts"],
       "@k-studio-pro/engine/vite": ["./node_modules/@k-studio-pro/engine/src/vite.ts"],
+      "@engine-auth": ["./node_modules/@k-studio-pro/engine/src/shell/hooks/useAuth.tsx"],
       "@/blocks": ["./node_modules/@k-studio-pro/engine/src/blocks/index.ts"],
       "@/blocks/*": ["./node_modules/@k-studio-pro/engine/src/blocks/*"],
       "@/engines": ["./node_modules/@k-studio-pro/engine/src/engines/index.ts"],
