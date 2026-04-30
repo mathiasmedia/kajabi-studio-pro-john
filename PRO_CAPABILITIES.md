@@ -29,7 +29,6 @@ A separate section type that exists alongside the standard footer for back-compa
 Section-level toggle: `enable_slider: true` turns the section's blocks into a Swiper carousel. Works with any block type. **Field IDs and defaults verified against `streamlined-home-pro/sections/section.liquid` + `snippets/column_one_slider.liquid` (also `_two`/`_three` — identical).**
 
 **Schema fields (visible in Kajabi UI):**
-
 - `blocks_per_slide` (range 1–12, default `3`) — desktop only. **Mobile is hardcoded to 1 in Liquid (`blocks_per_slide_mobile = 1`); there is NO `blocks_per_slide_mobile` setting.** Don't expose a mobile knob — it can't reach Kajabi.
 - `hide_overflow` (checkbox, default `true`) — clips slides that would bleed past the section padding.
 - `slider_preset` (select, default `"modern"`) — options: `"default"` (Classic: centered dots + arrows) and `"modern"` (dots bottom-left, arrows bottom-right, on one line below the slider). **This is the ONLY field controlling dot/arrow alignment** — there are no separate `dot_align` / `arrow_align` / `arrow_position` fields.
@@ -43,7 +42,6 @@ Section-level toggle: `enable_slider: true` turns the section's blocks into a Sw
 - `block_end_offset` (range 0–20, default `0`) — N trailing blocks. **Field ID is `block_end_offset`, NOT `block_offset_after`.** Canonical use: `block_offset: 1` to keep a heading text block above the carousel in the same section.
 
 **Hidden settings referenced in CSS but NOT in the schema** (no Kajabi UI exposes them; they fall back to defaults via Liquid `| default:`):
-
 - `arrow_size` (default `32px`) — font-size of the arrow button container.
 - `dot_size` (default `10px`), `dot_margin_top` (default `20px`).
 - `space_between_slide_blocks` (default `0`) — desktop gap between slides.
@@ -52,7 +50,6 @@ Section-level toggle: `enable_slider: true` turns the section's blocks into a Sw
 We expose `spaceBetweenDesktop` / `spaceBetweenMobile` props in the React layer and serialize to these hidden fields — Kajabi reads them at runtime even though no UI sets them. The other hidden fields (`arrow_size`, `dot_size`, `dot_margin_top`) we don't expose — defaults are fine.
 
 **Arrow markup (fixed, NOT customizable per-section):** Pro renders chevrons as inline SVG polylines, not Swiper's native font glyphs. The exact markup from `column_one_slider.liquid`:
-
 ```html
 <div class="slider-arrows" aria-label="Slider navigation">
   <div class="swiper-button-prev swiper-button-prev-{{section.id}}">
@@ -65,21 +62,78 @@ We expose `spaceBetweenDesktop` / `spaceBetweenMobile` props in the React layer 
   <div class="swiper-button-next swiper-button-next-{{section.id}}"> <!-- next polyline points: "9 18 15 12 9 6" --> </div>
 </div>
 ```
-
 Section CSS explicitly suppresses Swiper's default `::after` glyphs with `content: none !important;`. **Earlier guidance suggested arrows accept "custom SVG (paste icon SVG for prev/next)" — that was wrong, no such field exists.** Our preview in `src/blocks/sections.tsx` mirrors this exact markup.
 
 **Runtime quirks:**
-
 - The slider script re-initializes on `DOMContentLoaded`, the custom `section:load` event, and a debounced MutationObserver — necessary so sliders inside tabs (§9.5) rebuild when their tab becomes visible.
 - The `data-effect` attribute is read fresh on each init; `fadeEffect.crossFade` is NOT set in Pro's runtime config (this is the bug `mem://reference/kajabi-fade-slider-bug.md` works around — the exporter auto-injects CSS when any section uses `transition_effect: "fade"`).
 
 **Composition with Pro columns:** when a section has `columns: 2` or `columns: 3` (§9.4), an extra `slider_column` setting (`first` / `second` / `third`, default `first`) picks which column hosts the slider — only that column's blocks become slides; the other columns render normally.
 
 **Mandatory authoring rules:**
-
-- Use `block_offset: 1` to keep a heading text block grouped with the carousel — never put the heading in a separate section.
 - Default `slider_preset` to `"modern"` to match Kajabi's UI default.
 - Don't set per-section `arrow_color` / `dot_color` randomly — pull from `themeSettings.color_button` or `color_primary` so all sliders on a site match.
+
+#### 9.3a 🚨 SLIDER `block_offset` IS MANDATORY WHENEVER A SECTION HAS AN INTRO HEADLINE
+
+**The #1 Pro slider mistake** — every single one of the section's blocks gets pulled into the slide pool by default, INCLUDING the section's intro/eyebrow/headline. So if you build a section like "12 Weeks · 24 Modules" + "A guided descent through every depth of the craft." + 6 module cards as a slider, the slider cycles through `[eyebrow] → [headline] → [card 1] → [card 2] → ...` and the headline appears as one of the slides. The expert sees their hero headline flicker past as a "slide" and reports: "the slider is sliding the wrong things" / "my title is in the carousel" / "you forgot to skip one block before starting the slider."
+
+**The rule — count the intro blocks, set `block_offset` to that exact number.** Every time you set `enableSlider: true` on a section, walk the section's `blocks` array from the top and count every block that is NOT a slide (eyebrow text, headline text, lede paragraph, divider, intro CTA). Whatever that count is, set `block_offset: <count>` on the section's slider props. Same on the trailing side: count any outro blocks (final CTA, footnote) and set `block_end_offset: <count>`.
+
+**Worked example — the canonical "intro + carousel" section:**
+
+```jsonc
+{
+  "kind": "content",
+  "name": "Curriculum",
+  "props": {
+    "background": "#FBF6EC",
+    "enableSlider": true,
+    "blocksPerSlide": 3,
+    "transitionEffect": "slide",
+    "block_offset": 2,        // ← skip eyebrow + headline (2 leading blocks)
+    "block_end_offset": 0,    // no trailing blocks
+    "slider_preset": "modern"
+  },
+  "blocks": [
+    { "type": "text", "props": { "text": "<p class=\"eyebrow\">12 WEEKS · 24 MODULES</p>" } },     // ← block #0, intro (skipped)
+    { "type": "text", "props": { "text": "<h2>A guided descent through every depth of the craft.</h2>" } }, // ← block #1, intro (skipped)
+    { "type": "feature", "props": { /* Module 1 card */ } },   // ← block #2, slide 1
+    { "type": "feature", "props": { /* Module 2 card */ } },   // ← block #3, slide 2
+    { "type": "feature", "props": { /* Module 3 card */ } },   // ← block #4, slide 3
+    { "type": "feature", "props": { /* Module 4 card */ } },   // ← block #5, slide 4
+    { "type": "feature", "props": { /* Module 5 card */ } },   // ← block #6, slide 5
+    { "type": "feature", "props": { /* Module 6 card */ } }    // ← block #7, slide 6
+  ]
+}
+```
+
+**Quick reference — what `block_offset` value matches your intro:**
+
+| Intro shape above the carousel | `block_offset` |
+|---|---|
+| No intro — section is JUST the slider | `0` (default — fine) |
+| Eyebrow OR headline only (1 block) | `1` |
+| Eyebrow + headline (2 blocks) | `2` |
+| Eyebrow + headline + lede paragraph (3 blocks) | `3` |
+| Eyebrow + headline + lede + divider (4 blocks) | `4` |
+
+**Pre-flight check — every time you set `enableSlider: true`:**
+1. Walk the section's `blocks` array from index 0.
+2. Count consecutive leading blocks that are NOT slides (intro copy, eyebrows, headlines, ledes, dividers, intro CTAs).
+3. Set `block_offset` to that exact number.
+4. Walk from the bottom; count consecutive trailing non-slide blocks. Set `block_end_offset` to that number.
+5. Mentally simulate the slider: "the first slide should be `blocks[block_offset]`." If `blocks[block_offset]` is a heading, you've miscounted — increment.
+
+**Symptom mapping — when the expert says any of these, fix `block_offset` FIRST:**
+- "the headline is sliding past as a slide"
+- "my title is in the carousel"
+- "you forgot to skip one block before starting the slider"
+- "the slider is sliding the wrong things"
+- "the first slide is blank / shows the section title"
+- "why does the slider include my eyebrow?"
+
+**Never** put the intro into a separate section to "fix" this — that splits the visual rhythm and breaks the section's cohesion. `block_offset` is the correct, native Kajabi solution. Use it.
 
 ### 9.4 Pro columns (2 or 3 per section)
 
@@ -134,13 +188,13 @@ The biggest reason to reach for Pro columns over the standard 12-col grid is **v
 
 **When to reach for stacked columns vs other patterns:**
 
-| Layout intent                                                               | Use this                                                                |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Image left, headline+body+stats+CTA right (canonical hero/about split)      | Pro columns 6/6, stack text+text+cta in column 2                        |
-| Three feature cards in a row, each with icon+title+body+button              | Standard 12-col grid with `feature` blocks (no Pro needed)              |
-| Sidebar filter + product grid                                               | Pro columns 3/9, search/filter blocks in column 1, products in column 2 |
-| Hero with badge above headline above two CTAs                               | Single column, stack badge+text+cta+cta blocks                          |
-| Pricing table with three tiers, each tier has heading+price+bullet list+CTA | Pro columns 4/4/4, stack text+text+text+cta in EACH column              |
+| Layout intent | Use this |
+|---|---|
+| Image left, headline+body+stats+CTA right (canonical hero/about split) | Pro columns 6/6, stack text+text+cta in column 2 |
+| Three feature cards in a row, each with icon+title+body+button | Standard 12-col grid with `feature` blocks (no Pro needed) |
+| Sidebar filter + product grid | Pro columns 3/9, search/filter blocks in column 1, products in column 2 |
+| Hero with badge above headline above two CTAs | Single column, stack badge+text+cta+cta blocks |
+| Pricing table with three tiers, each tier has heading+price+bullet list+CTA | Pro columns 4/4/4, stack text+text+text+cta in EACH column |
 
 **Anti-pattern — DON'T do this:**
 
@@ -160,7 +214,7 @@ The biggest reason to reach for Pro columns over the standard 12-col grid is **v
 
 > Verified against `streamlined-home-pro/snippets/block_code_tabs.liquid` + `sections/section.liquid` (tab pane wrapping). Engine support landed in `@k-studio-pro/engine@0.1.3`.
 
-Pro tabs are **two cooperating pieces**: a `code_tabs` block that renders the tab strip, plus sibling `ContentSection`s flagged as tab panes. The tab block doesn't _contain_ the panes — Kajabi (and our preview shim) match them up by slug.
+Pro tabs are **two cooperating pieces**: a `code_tabs` block that renders the tab strip, plus sibling `ContentSection`s flagged as tab panes. The tab block doesn't *contain* the panes — Kajabi (and our preview shim) match them up by slug.
 
 #### Authoring shape (React / engine props)
 
@@ -224,23 +278,23 @@ In raw `design` JSON the same thing looks like:
 
 **On the `code_tabs` block:**
 
-| React prop     | Kajabi field                        | Values                              | Notes                          |
-| -------------- | ----------------------------------- | ----------------------------------- | ------------------------------ |
-| `style`        | `tabs_style`                        | `"pills"` \| `"tabs"`               | default `"pills"`              |
-| `align`        | `tabs_align`                        | `"left"` \| `"center"` \| `"right"` | default `"center"`             |
-| `tabs[N].name` | `first_tab_name` … `fifth_tab_name` | string                              | Up to 5 tabs                   |
-| `tabs[N].slug` | `first_tab_slug` … `fifth_tab_slug` | lowercase string                    | MUST match a pane's `tab_slug` |
-| `width`        | `width`                             | `"1"`–`"12"`                        | default `"12"`                 |
+| React prop | Kajabi field | Values | Notes |
+|---|---|---|---|
+| `style` | `tabs_style` | `"pills"` \| `"tabs"` | default `"pills"` |
+| `align` | `tabs_align` | `"left"` \| `"center"` \| `"right"` | default `"center"` |
+| `tabs[N].name` | `first_tab_name` … `fifth_tab_name` | string | Up to 5 tabs |
+| `tabs[N].slug` | `first_tab_slug` … `fifth_tab_slug` | lowercase string | MUST match a pane's `tab_slug` |
+| `width` | `width` | `"1"`–`"12"` | default `"12"` |
 
 > The Kajabi snippet uses **flat `first_*` / `second_*` / … / `fifth_*` fields**, NOT an array. The engine's serializer flattens `tabs[]` for you — just write the array.
 
 **On each pane `ContentSection` (Pro section-level fields):**
 
-| React prop   | Kajabi field  | Values                               |
-| ------------ | ------------- | ------------------------------------ |
-| `useAsTab`   | `use_as_tab`  | `"true"`                             |
-| `tabSlug`    | `tab_slug`    | lowercase string, unique among panes |
-| `defaultTab` | `default_tab` | `"true"` on EXACTLY ONE pane         |
+| React prop | Kajabi field | Values |
+|---|---|---|
+| `useAsTab` | `use_as_tab` | `"true"` |
+| `tabSlug` | `tab_slug` | lowercase string, unique among panes |
+| `defaultTab` | `default_tab` | `"true"` on EXACTLY ONE pane |
 
 #### Mandatory rules
 
@@ -294,7 +348,6 @@ This is the canonical use case (and the one this engine version was tested again
 #### Pre-flight checklist
 
 Before saving any page that uses tabs:
-
 - [ ] Site `base_theme` is `streamlined-home-pro` or `encore-page-pro`.
 - [ ] Tabs block's `tabs[].slug` values are all lowercase, unique, and ≤ 5 entries.
 - [ ] Every slug in the tabs block has exactly one matching pane section with `tabSlug` set to the same value.
@@ -331,7 +384,6 @@ Layout starters (white-boxes, featured testimonial, team grid, gradient CTA, "as
 Pro replaces Kajabi's single-button styling with a **dark/light pair** model so the same site can ship buttons over both light and dark sections. Configure globally in **Page Settings → Style guide → Buttons**, override per-CTA. **Field IDs below are the literal Kajabi `settings_data.json` keys** — verified against `streamlined-home-pro/config/settings_schema.json`.
 
 Global theme settings:
-
 - `btn_background_color` (label "Button Color **Dark**") + `btn_text_color` (label "Button Color **Light**") — Pro repurposes these as the dark/light brand pair. **Counterintuitive:** `btn_text_color` does NOT mean text color — it's the LIGHT half of the pair. Authors pick ONE pair sitewide; each button picks which member via `btn_type`.
 - `btn_type`: `"dark"` | `"light"` (default `"dark"`).
 - `btn_style`: `"solid"` | `"outline"` | `"text"` (default `"solid"`). Pro adds `"text"` (no padding/border, just a styled link).
@@ -349,12 +401,10 @@ Global theme settings:
 - `custom_button_top_margin` + `custom_button_bottom_margin`.
 
 Per-button overrides:
-
 - Every global field above also exists as a per-block override on every `cta` block (and text blocks with inline buttons).
 - **"Do Not Override" sentinel = the literal string `"inherit"` for EVERY override field** (verified in `snippets/block_cta.liquid` — every override field is checked with `{% if block.settings.X != 'inherit' %}`). Applies even to numerics (padding/margin/font-size) and colors. **Serializer rule:** to preserve global behavior, emit `"inherit"` — NOT `""`, NOT omit the key. Liquid's `default:` filter only triggers on `nil`; the override fields are explicitly compared to `'inherit'`, so empty string is treated as a real override and produces broken CSS like `font-size: ;`.
 
 Style + hover behavior (verified in `snippets/block_cta.liquid`):
-
 - `btn_style: "text"` **DOES respect the dark/light pair via `btn_type`** — there are dedicated `text + dark` and `text + light` branches. Text buttons use the pair color as the link color (no fallback to body text).
 - `btn_inverse_on_hover: "inverse"` is implemented ONLY in the `solid` and `outline` branches — **no-op on `text`**.
 
@@ -365,7 +415,6 @@ Composition rule: still follow §4.7 — pick the dark/light pair ONCE per site,
 Mirrors the button system for opt-in / contact / search inputs. Configure globally in **Page Settings → Style guide → Form styles**. **Field IDs verified against `streamlined-home-pro/config/settings_schema.json`.**
 
 Global theme settings:
-
 - `form_input_color_dark` + `form_input_color_light` — input bg pair.
 - `form_input_placeholder_color_dark` + `form_input_placeholder_color_light` — placeholder per pair member. (Plus the existing standard `color_placeholder` global.)
 - `form_new_input_type`: `"dark"` | `"light"` (default `"light"`).
@@ -388,7 +437,6 @@ Per-form overrides: every field above has a per-block override with the same `"i
 **Why this exists.** Kajabi's default font picker is restricted to a small Google Fonts set, and its font-size selects skip values (e.g. 32px and 36px exist, 34px does not). Pro **keeps every default Kajabi font field intact** and layers a fully optional override system on top — leave overrides off → Kajabi defaults win exactly as on Standard. Touch one field → it wins for that scope. Don't reach for the override system unless the expert asks for a font Kajabi doesn't ship or a size Kajabi's picker can't produce.
 
 **Cascade (lowest → highest priority):**
-
 1. Kajabi defaults (`font_family_body`, `font_family_heading`, `font_size_h*_desktop`, etc.) — same fields as Standard.
 2. Body overrides (`override_body_fonts: true`) and bold body overrides (`override_bold_body_fonts: true`) → apply to `body, p` / `body strong, p strong`.
 3. **All headings** override (`override_heading_font_styles: true`) → applies to every `h1–h6` (and their `strong` variants).
@@ -400,18 +448,18 @@ Per-form overrides: every field above has a per-block override with the same `"i
 
 **Visibility toggles (`hide_if`) — flip them when you emit overrides.** Most override fields have `hide_if: { <toggle_id>: false }`. The toggle controls **whether the field is visible in the Kajabi page builder**, not whether it's emitted. **Whenever you emit any field under a toggle, you MUST also flip the toggle to `true`** — otherwise the expert opens Kajabi and can't see/edit the values you wrote.
 
-| Toggle ID (default `false`)                                     | Unlocks                                                                                                  |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `view_advanced_button_customizations`                           | All advanced `btn_*` fields (button shadow/hover/uppercase/font/weight/lh/ls/size/border/padding/margin) |
-| `use_custom_fonts`                                              | `font_stylesheet_links` (paste `<link>` tags here)                                                       |
-| `use_primary_custom_font`                                       | `primary_custom_font_name`, `primary_custom_font_fallback`                                               |
-| `use_accent_custom_font`                                        | `accent_custom_font_name`, `accent_custom_font_fallback`                                                 |
-| `override_body_fonts` / `override_bold_body_fonts`              | Body / bold body font + size/weight/lh/ls/margin                                                         |
-| `override_heading_font_styles`                                  | All-headings font + weight/lh/ls/bottom-margin (NO size — size goes per-element)                         |
-| `override_h1_font_styles` … `override_h6_font_styles`           | Per-element font + weight/lh/ls/size_desktop/size_mobile/bottom_margin                                   |
-| `override_h1_bold_font_styles` … `override_h6_bold_font_styles` | Per-element bold variant (same fields)                                                                   |
-| `use_pro_form_customizations`                                   | All `form_input_*` fields (see §9.8b)                                                                    |
-| `use_font_css`                                                  | `font_css` raw CSS textarea                                                                              |
+| Toggle ID (default `false`) | Unlocks |
+|---|---|
+| `view_advanced_button_customizations` | All advanced `btn_*` fields (button shadow/hover/uppercase/font/weight/lh/ls/size/border/padding/margin) |
+| `use_custom_fonts` | `font_stylesheet_links` (paste `<link>` tags here) |
+| `use_primary_custom_font` | `primary_custom_font_name`, `primary_custom_font_fallback` |
+| `use_accent_custom_font` | `accent_custom_font_name`, `accent_custom_font_fallback` |
+| `override_body_fonts` / `override_bold_body_fonts` | Body / bold body font + size/weight/lh/ls/margin |
+| `override_heading_font_styles` | All-headings font + weight/lh/ls/bottom-margin (NO size — size goes per-element) |
+| `override_h1_font_styles` … `override_h6_font_styles` | Per-element font + weight/lh/ls/size_desktop/size_mobile/bottom_margin |
+| `override_h1_bold_font_styles` … `override_h6_bold_font_styles` | Per-element bold variant (same fields) |
+| `use_pro_form_customizations` | All `form_input_*` fields (see §9.8b) |
+| `use_font_css` | `font_css` raw CSS textarea |
 
 **Wiring a custom font (Google / Adobe / self-hosted).** Two slots only — primary + accent. Pick them ONCE per site, then assign per-element.
 
@@ -424,27 +472,25 @@ Per-form overrides: every field above has a per-block override with the same `"i
 Then assign via any `select_custom_*_font` field: `"primary"` → primary slot, `"accent"` → accent slot, `"inherit"` → no custom font on this element.
 
 **`"inherit"` semantics — verified from Liquid.** Every numeric/select override is checked against the literal string `"inherit"`:
-
 ```liquid
 {% if settings.custom_h3_font_weight != 'inherit' %}font-weight: {{ settings.custom_h3_font_weight }};{% endif %}
 ```
-
 **Empty string is NOT inherit** — it produces broken CSS like `font-weight: ;`. Serializer rule: emit `"inherit"`, never `""`, never omit the key. Same rule applies to button + form override fields.
 
 For `select_custom_*_font` specifically: only `"primary"` / `"accent"` emit a `font-family` rule. `"inherit"` emits nothing → the element falls back to **Kajabi's normal heading/body font cascade**, NOT to the other slot. This is correct — it lets a site mix custom slots with Kajabi defaults (e.g. H1 = primary custom, H2/H3 = Kajabi default, body = accent custom).
 
 **Per-element field shape (h1, identical for h2–h6 with the number swapped).** Note **hyphens, not underscores** in `*_line-height` and `*_letter-spacing` — they will silently fail if you serialize as snake_case.
 
-| Field ID                      | Default   |
-| ----------------------------- | --------- |
-| `override_h1_font_styles`     | `false`   |
-| `select_custom_h1_font`       | `inherit` |
-| `custom_h1_font_weight`       | `inherit` |
-| `custom_h1_line-height`       | `inherit` |
-| `custom_h1_letter-spacing`    | `inherit` |
+| Field ID | Default |
+|---|---|
+| `override_h1_font_styles` | `false` |
+| `select_custom_h1_font` | `inherit` |
+| `custom_h1_font_weight` | `inherit` |
+| `custom_h1_line-height` | `inherit` |
+| `custom_h1_letter-spacing` | `inherit` |
 | `custom_h1_font_size_desktop` | `inherit` |
-| `custom_h1_font_size_mobile`  | `inherit` |
-| `custom_h1_bottom_margin`     | `inherit` |
+| `custom_h1_font_size_mobile` | `inherit` |
+| `custom_h1_bottom_margin` | `inherit` |
 
 Bold variant: `override_h1_bold_font_styles` toggle, then `select_custom_bold_h1_font` + `custom_bold_h1_*` (same suffixes). All-headings override has the same shape minus the size fields.
 
@@ -455,7 +501,6 @@ Bold variant: `override_h1_bold_font_styles` toggle, then `select_custom_bold_h1
 **Block-level overrides.** Every `cta` block carries its own copy of the advanced button fields, and form blocks carry their own copy of the form input fields. Per-block values **override the template-level settings** for that one block. Same `"inherit"` sentinel rule (literal string, every field, never `""`, never omit).
 
 **Authoring rules (mandatory):**
-
 1. **Default to Kajabi defaults.** Don't touch the override system unless the expert asked for a font Kajabi doesn't ship, or a specific size its picker can't produce (e.g. 34px).
 2. **Whenever you emit any override field, also flip its visibility toggle to `true`.** Otherwise the expert can't see/edit it in Kajabi.
 3. **Use `"inherit"` (literal string)** for every numeric/select override you don't want to change. Never `""`, never omit.
@@ -513,7 +558,6 @@ When the expert asks "make the buttons match" / "fix the typography" / "the head
 Symptom: every heading carried inline `style="font-family: 'Playfair Display', serif; line-height: 1.05; letter-spacing: -0.02em;"` and every button carried inline `style="padding: 16px 32px; text-transform: uppercase; letter-spacing: 0.18em; font-size: 13px;"`. Sitewide style guide changes had no effect.
 
 Fix:
-
 1. **Set `themeSettings` once:**
    ```jsonc
    {
@@ -548,21 +592,21 @@ The key insight: **inline CSS is the symptom of a missed template-level control.
 
 All Pro-only blocks below are now wired into the React block library and engine — exporters, preview renderer, field schema, and `ALLOWED_BLOCKS_PER_SECTION` set all recognize them. Use them only on Pro sites (`base_theme: streamlined-home-pro` | `encore-page-pro`); they're silently dropped on Standard.
 
-| Snippet               | React component  | `kajabiType`    | Use for                                                                                                                                                     |
-| --------------------- | ---------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `block_feature_icon`  | `<FeatureIcon>`  | `feature_icon`  | Icon-led feature cards. Inline SVG via `iconCode`, recolored via `iconColor`, sized via `iconSize`. Includes native button (`showButton`+`buttonText`+...). |
-| `block_image_icon`    | `<ImageIcon>`    | `image_icon`    | Standalone decorative SVG (hero sticker, divider). Independent `iconWidth` + `iconHeight`.                                                                  |
-| `block_code_tabs`     | `<Tabs>`         | `code_tabs`     | Tab strip — see §9.5. Up to 5 tabs; pair with sibling `useAsTab` panes.                                                                                     |
-| `block_search_filter` | `<SearchFilter>` | `search_filter` | Faceted filter — see §9.6. Targets sibling `feature` blocks in same section.                                                                                |
-| `block_search_form`   | `<SearchForm>`   | `search_form`   | Standalone keyword search input (also see §9.6).                                                                                                            |
-| `block_test`          | —                | —               | Internal Kajabi placeholder, **do not wire**.                                                                                                               |
+| Snippet | React component | `kajabiType` | Use for |
+|---|---|---|---|
+| `block_feature_icon` | `<FeatureIcon>` | `feature_icon` | Icon-led feature cards. Inline SVG via `iconCode`, recolored via `iconColor`, sized via `iconSize`. Includes native button (`showButton`+`buttonText`+...). |
+| `block_image_icon` | `<ImageIcon>` | `image_icon` | Standalone decorative SVG (hero sticker, divider). Independent `iconWidth` + `iconHeight`. |
+| `block_code_tabs` | `<Tabs>` | `code_tabs` | Tab strip — see §9.5. Up to 5 tabs; pair with sibling `useAsTab` panes. |
+| `block_search_filter` | `<SearchFilter>` | `search_filter` | Faceted filter — see §9.6. Targets sibling `feature` blocks in same section. |
+| `block_search_form` | `<SearchForm>` | `search_form` | Standalone keyword search input (also see §9.6). |
+| `block_test` | — | — | Internal Kajabi placeholder, **do not wire**. |
 
 **SVG icon blocks (`feature_icon`, `image_icon`):** the `iconCode` prop takes raw inline SVG markup (e.g. `<svg viewBox="0 0 24 24"><path d="..."/></svg>`). Kajabi's runtime CSS forces `fill` and `width`/`height` on the rendered `<svg>` via `!important`, so the SVG should NOT bake in its own width/height/fill — just supply the path. Our preview mirrors that behavior with a scoped `<style>` block. Source any SVG icon set (Lucide, Heroicons, Feather, custom) — paste the raw `<svg>...</svg>` into `iconCode`.
+
 
 ### 9.10 Pro-only section snippets (column sliders)
 
 Layout switches set via section settings (not new block types):
-
 - `column_one_slider.liquid`, `column_two_slider.liquid`, `column_three_slider.liquid`
 
 ### 9.11 Pro-only sections
@@ -573,7 +617,6 @@ Layout switches set via section settings (not new block types):
 ### 9.12 Pro-only section-level fields
 
 `sections/section.liquid` in Pro adds ~50 new fields:
-
 - **Animation**: `animation_type`, `animation_duration`, `animation_delay`, `animation_offset`.
 - **Slider** (§9.3): `enable_slider`, `slider_autoplay`, `slider_speed`, `slider_dots`, `slider_arrows`, `slider_infinite`, `slides_to_show_*`, `block_offset_before`, `block_offset_after`, plus arrow/dot positioning.
 - **Columns** (§9.4): `columns`, `column_widths`, `column_gap`, per-block `column`.
