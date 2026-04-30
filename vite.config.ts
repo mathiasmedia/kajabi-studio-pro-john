@@ -24,8 +24,25 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  // Treat .zip as a static asset so engine's `*.zip?url` imports resolve to URLs.
+  assetsInclude: ["**/*.zip"],
   optimizeDeps: {
-    include: ["jszip"],
+    include: [
+      "react",
+      "react/jsx-runtime",
+      "react-dom",
+      "react-dom/client",
+      "react-router-dom",
+      "jszip",
+    ],
+    // Engine ships `*.zip?url` imports; esbuild can't pre-bundle that. Let Vite
+    // serve the engine package directly instead.
+    exclude: ["@k-studio-pro/engine"],
+    esbuildOptions: {
+      loader: {
+        ".zip": "empty",
+      },
+    },
   },
   resolve: {
     // Order matters: more-specific aliases must come before "@".
