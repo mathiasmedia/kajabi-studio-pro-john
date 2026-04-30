@@ -1,27 +1,19 @@
 {
-  "files": [],
-  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }],
   "compilerOptions": {
-    "paths": {
-      "@kajabi-studio/engine": ["./node_modules/@k-studio-pro/engine/src/index.ts"],
-      "@k-studio-pro/engine": ["./node_modules/@k-studio-pro/engine/src/index.ts"],
-      "@k-studio-pro/engine/data": ["./node_modules/@k-studio-pro/engine/src/data/index.ts"],
-      "@k-studio-pro/engine/shell": ["./node_modules/@k-studio-pro/engine/src/shell/index.ts"],
-      "@k-studio-pro/engine/vite": ["./node_modules/@k-studio-pro/engine/src/vite.ts"],
-      "@/blocks": ["./node_modules/@k-studio-pro/engine/src/blocks/index.ts"],
-      "@/blocks/*": ["./node_modules/@k-studio-pro/engine/src/blocks/*"],
-      "@/engines": ["./node_modules/@k-studio-pro/engine/src/engines/index.ts"],
-      "@/engines/*": ["./node_modules/@k-studio-pro/engine/src/engines/*"],
-      "@/lib/siteDesign": ["./node_modules/@k-studio-pro/engine/src/siteDesign/index.ts"],
-      "@/lib/siteDesign/*": ["./node_modules/@k-studio-pro/engine/src/siteDesign/*"],
-      "@/types/*": ["./node_modules/@k-studio-pro/engine/src/types/*"],
-      "@/*": ["./src/*"]
-    },
-    "noImplicitAny": false,
-    "noUnusedParameters": false,
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
     "skipLibCheck": true,
-    "allowJs": true,
-    "noUnusedLocals": false,
-    "strictNullChecks": false
-  }
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
 }
